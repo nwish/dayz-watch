@@ -80,6 +80,9 @@ export class Monitor {
     const st = {
       info: null,
       lastPlayers: null,
+      lastPingMs: null,
+      pingTotalMs: 0,
+      pingSamples: 0,
       error: null,
       checkedAt: null,
       timer: null,
@@ -127,10 +130,14 @@ export class Monitor {
 
   status(id) {
     const st = this.state.get(id);
-    if (!st) return { info: null, error: null, checkedAt: null, state: "unknown", failures: 0, offlineSince: null, lastSeenAt: null, likelyRestart: false };
+    if (!st) return { info: null, ping: null, error: null, checkedAt: null, state: "unknown", failures: 0, offlineSince: null, lastSeenAt: null, likelyRestart: false };
     const iso = (ms) => (ms == null ? null : new Date(ms).toISOString());
     return {
       info: st.info,
+      ping: st.pingSamples === 0 ? null : {
+        lastMs: st.lastPingMs,
+        avgMs: Math.round(st.pingTotalMs / st.pingSamples),
+      },
       error: st.error,
       checkedAt: st.checkedAt,
       state: st.state,
@@ -146,6 +153,7 @@ export class Monitor {
     const st = this.state.get(server.id);
     if (!st) return;
     const address = `${server.host}:${server.queryPort}`;
+    const startedAt = this.now();
     let info;
     try {
       info = await this.query(server.host, server.queryPort);
@@ -186,6 +194,11 @@ export class Monitor {
     const announceBack = wasOffline && st.offlineNotified;
     const downMs = st.offlineSince === null ? 0 : this.now() - st.offlineSince;
     st.error = null;
+    const pingMs = Math.max(0, Math.round(this.now() - startedAt));
+    st.lastPingMs = pingMs;
+    st.pingTotalMs += pingMs;
+    st.pingSamples++;
+
     st.checkedAt = ts();
     st.info = info;
     st.state = "online";

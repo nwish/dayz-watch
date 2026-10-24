@@ -101,6 +101,24 @@ test("monitor: no post on baseline or unchanged; posts on change", async () => {
   assert.match(posts[1].content, /6 → \*\*1\*\*\/60 \(-5\)/);
 });
 
+test("monitor: reports the latest and average successful query times", async () => {
+  let now = 0;
+  const delays = [12, 57];
+  const m = new Monitor({
+    now: () => now,
+    query: async () => {
+      now += delays.shift();
+      return info(4);
+    },
+    notify: async () => {},
+  });
+  const server = { id: "s1", host: "h", queryPort: 1, webhookUrl: null };
+  m.track(server);
+  await m.tick(server);
+  await m.tick(server);
+  assert.deepEqual(m.status("s1").ping, { lastMs: 57, avgMs: 35 });
+});
+
 test("monitor: failed query keeps last count and is not a change", async () => {
   const { m, posts, tick } = monitorHarness();
   await tick(info(4));

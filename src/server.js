@@ -150,14 +150,18 @@ function adminOverview() {
   const db = stats.dbStats();
   const known = new Map(store.list().map((s) => [s.id, s]));
   const rows = new Map(db.perServer.map((r) => [r.serverId, r]));
-  const perServer = [...known.values()].map((s) => ({
-    serverId: s.id,
-    name: monitor.status(s.id).info?.name ?? null,
-    address: `${s.host}:${s.queryPort}`,
-    deleted: false,
-    ...(rows.get(s.id) ?? { buckets: 0, polls: 0, ok: 0, first: null, last: null }),
-  }));
-  for (const r of db.perServer) if (!known.has(r.serverId)) perServer.push({ name: null, address: null, deleted: true, ...r }); // history for a server that no longer exists
+  const perServer = [...known.values()].map((s) => {
+    const status = monitor.status(s.id);
+    return {
+      serverId: s.id,
+      name: status.info?.name ?? null,
+      address: `${s.host}:${s.queryPort}`,
+      ping: status.ping,
+      deleted: false,
+      ...(rows.get(s.id) ?? { buckets: 0, polls: 0, ok: 0, first: null, last: null }),
+    };
+  });
+  for (const r of db.perServer) if (!known.has(r.serverId)) perServer.push({ name: null, address: null, ping: null, deleted: true, ...r }); // history for a server that no longer exists
   const size = (name) => {
     try {
       return fs.statSync(path.join(DATA_DIR, name)).size;
@@ -176,12 +180,13 @@ function adminOverview() {
 }
 
 function serverView(s) {
+  const { ping, ...status } = monitor.status(s.id);
   return {
     id: s.id,
     host: s.host,
     queryPort: s.queryPort,
     hasWebhook: Boolean(s.webhookUrl), // never echo the webhook URL back
-    ...monitor.status(s.id),
+    ...status,
   };
 }
 

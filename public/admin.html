@@ -55,6 +55,17 @@
 </section>
 
 <section>
+  <div class="bar"><h2>Watcher query RTT</h2></div>
+  <p class="muted">A2S response time from this app host, not player latency. Resets when the app restarts.</p>
+  <div class="scroll">
+    <table id="rtt-servers">
+      <thead><tr><th>Server</th><th class="num">Latest</th><th class="num">Average</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</section>
+
+<section>
   <div class="bar">
     <h2>Database</h2>
     <span class="spacer"></span>
@@ -169,6 +180,25 @@ function render(o) {
     cards.push(stat("At full retention", `≈ ${bytes(full)}`, `estimate for ${c.servers} server${c.servers === 1 ? "" : "s"} × ${db.retentionDays} days`));
   }
   $("db-cards").replaceChildren(...cards);
+
+  const rtt = $("rtt-servers").tBodies[0];
+  rtt.replaceChildren();
+  const monitored = db.perServer.filter((s) => !s.deleted);
+  if (!monitored.length) {
+    const td = rtt.insertRow().insertCell();
+    td.colSpan = 3;
+    td.className = "muted";
+    td.textContent = "No monitored servers.";
+  }
+  for (const s of monitored) {
+    const tr = rtt.insertRow();
+    tr.insertCell().append(h("div", { textContent: s.name ?? "—" }), h("div", { className: "muted", textContent: s.address }));
+    for (const value of [s.ping?.lastMs, s.ping?.avgMs]) {
+      const td = tr.insertCell();
+      td.className = "num";
+      td.textContent = value == null ? "—" : `${value} ms`;
+    }
+  }
 
   const tb = $("db-servers").tBodies[0];
   tb.replaceChildren();

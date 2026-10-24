@@ -211,6 +211,7 @@ test("stats: API and page require login, validate input, 404 unknown servers, an
   assert.equal(listed.json.offlineAfter, 3);
   const view = listed.json.servers.find((s) => s.id === id);
   assert.ok(["unknown", "online", "offline"].includes(view.state) && Number.isInteger(view.failures));
+  assert.equal("ping" in view, false);
   assert.equal((await c.call("GET", `/api/servers/${id}/stats`)).json.range, "7d"); // default
   assert.equal((await c.call("GET", `/api/servers/${id}/stats?range=1y`)).status, 400);
   assert.equal((await c.call("GET", `/api/servers/${id}/stats?tz=garbage`)).status, 200); // bad tz falls back to UTC
@@ -250,6 +251,7 @@ test("admin: page and overview API are admin-only and never leak credentials", a
   const row = o.json.db.perServer.find((s) => s.serverId === added.json.id);
   assert.equal(row.address, "127.0.0.1:9");
   assert.equal(row.deleted, false);
+  assert.equal(row.ping, null);
   assert.doesNotMatch(o.text, /scrypt|ginas long password/);
   assert.equal((await admin.call("DELETE", `/api/servers/${added.json.id}`)).status, 200);
 
