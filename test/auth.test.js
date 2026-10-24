@@ -87,6 +87,19 @@ test("sessions: idle timeout, absolute lifetime, sliding refresh, per-user revok
   assert.equal(s.get(undefined), null);
 });
 
+test("sessions: count() ignores expired sessions that haven't been swept yet", () => {
+  const c = clock();
+  const s = new SessionStore({ idleMs: 1000, maxMs: 5000, now: c.now });
+  s.create("alice");
+  s.create("bob");
+  assert.equal(s.count(), 2);
+  c.advance(600);
+  s.create("carol");
+  c.advance(600); // alice and bob are idle-expired, carol is not; none swept yet
+  assert.equal(s.count(), 1);
+  assert.equal(s.sessions.size, 3);
+});
+
 test("users: create/verify, wrong or unknown credentials, normalisation, persistence", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dw-auth-"));
   try {

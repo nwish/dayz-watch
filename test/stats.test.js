@@ -102,3 +102,37 @@ test("prune drops history older than 90 days and keeps the rest", () => {
   assert.equal(q.summary.polls, 2);
   assert.equal(q.summary.min, 2);
 });
+
+test("dbStats reports totals, per-server coverage and page/file sizes", async () => {
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dw-db-"));
+  let t = T0;
+  const s = new Stats(path.join(dir, "stats.db"), { now: () => t });
+  try {
+    s.record("a", up(10));
+    s.record("a", null);
+    t = T0 + 600;
+    s.record("a", up(20));
+    s.record("b", up(5));
+    const d = s.dbStats();
+    assert.equal(d.rows, 3); // a: two buckets, b: one
+    assert.equal(d.polls, 4);
+    assert.equal(d.answered, 3);
+    assert.equal(d.oldest, T0);
+    assert.equal(d.newest, T0 + 600);
+    assert.equal(d.retentionDays, 90);
+    assert.deepEqual(d.perServer.find((x) => x.serverId === "a"), { serverId: "a", buckets: 2, polls: 3, ok: 2, first: T0, last: T0 + 600 });
+    assert.ok(d.pageSize > 0 && d.pageCount > 0 && d.freePages >= 0);
+    assert.ok(d.files.db > 0);
+    s.remove("a");
+    assert.deepEqual(s.dbStats().perServer.map((x) => x.serverId), ["b"]);
+  } finally {
+    s.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  const mem = new Stats(":memory:").dbStats();
+  assert.deepEqual([mem.rows, mem.oldest, mem.newest, mem.perServer.length], [0, null, null, 0]);
+  assert.deepEqual(mem.files, { db: null, wal: null, shm: null });
+});

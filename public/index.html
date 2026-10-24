@@ -62,8 +62,8 @@
   .row-actions > * { margin: 0; }
   button { cursor: pointer; }
   button:hover { border-color: var(--hl); }
-  #add button[type=submit], #user-add button[type=submit], #pw-form button[type=submit] { background: var(--blood); border-color: var(--blood-hi); color: #f3e9e0; font-weight: 600; letter-spacing: .04em; }
-  #add button[type=submit]:hover, #user-add button[type=submit]:hover, #pw-form button[type=submit]:hover { background: var(--blood-hi); }
+  #add button[type=submit], #pw-form button[type=submit] { background: var(--blood); border-color: var(--blood-hi); color: #f3e9e0; font-weight: 600; letter-spacing: .04em; }
+  #add button[type=submit]:hover, #pw-form button[type=submit]:hover { background: var(--blood-hi); }
   #msg { grid-column: 1 / -1; min-height: 1.2em; }
   #warn { color: var(--warn); }
   tr.clickable { cursor: pointer; }
@@ -103,8 +103,8 @@
   @media (max-width: 640px) {
     body { margin: 1rem auto; }
     input, select { font-size: 16px; } /* stops iOS zooming the page when a field is focused */
-    button, input, select { padding: .65rem .75rem; }
-    button { white-space: nowrap; }
+    button, input, select, a.btn { padding: .65rem .75rem; }
+    button, a.btn { white-space: nowrap; }
     header { flex-wrap: wrap; gap: .2rem .8rem; }
     h1 { margin: .3rem 0; white-space: nowrap; }
     nav { flex-wrap: wrap; gap: .5rem; }
@@ -121,13 +121,6 @@
     #rows td:nth-child(5) { grid-area: status; font-size: .85em; }
     #rows td:nth-child(6) { grid-area: act; justify-self: end; }
     #rows td button { margin: 0; }
-    #user-rows tr { display: grid; grid-template-columns: 1fr auto; grid-template-areas: "user role" "login login" "acts acts"; gap: .2rem .8rem; padding: .8rem .2rem; border-bottom: 1px solid var(--line); }
-    #user-rows td { border: 0; padding: 0; }
-    #user-rows td:nth-child(1) { grid-area: user; font-weight: 600; overflow-wrap: anywhere; }
-    #user-rows td:nth-child(2) { grid-area: role; justify-self: end; }
-    #user-rows td:nth-child(3) { grid-area: login; font-size: .85em; }
-    #user-rows td:nth-child(4) { grid-area: acts; display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .4rem; }
-    #user-rows td button { margin: 0; flex: 1 1 auto; }
     /* forms stack one field per row */
     #add { grid-template-columns: 1fr; }
     .inline > * { flex: 1 1 100%; }
@@ -146,7 +139,7 @@
   <h1><img src="/favicon.svg" alt="">dayz-watch</h1>
   <nav>
     <span id="who" class="muted"></span>
-    <button id="users-btn" hidden>Users</button>
+    <a class="btn" id="admin-link" href="/admin" hidden>Admin</a>
     <button id="acct-btn">Account</button>
     <button id="logout">Log out</button>
   </nav>
@@ -178,21 +171,6 @@
     <input name="confirm" type="password" placeholder="Confirm new password" autocomplete="new-password" required>
     <button type="submit">Change password</button>
     <span id="pw-msg"></span>
-  </form>
-</section>
-
-<section id="panel-users" hidden>
-  <h2>Users</h2>
-  <table>
-    <thead><tr><th>Username</th><th>Role</th><th>Last login</th><th></th></tr></thead>
-    <tbody id="user-rows"></tbody>
-  </table>
-  <form id="user-add" class="inline">
-    <input name="username" placeholder="Username" autocomplete="off" autocapitalize="none" required>
-    <input name="password" type="password" placeholder="Password (10-128 characters)" autocomplete="new-password" minlength="10" maxlength="128" required>
-    <select name="role"><option value="user">user</option><option value="admin">admin</option></select>
-    <button type="submit">Add user</button>
-    <span id="users-msg"></span>
   </form>
 </section>
 
@@ -674,13 +652,9 @@ function setMsg(id, text, ok) {
   $(id).className = ok ? "ok" : "err";
 }
 
-function togglePanel(id) {
-  for (const p of ["panel-account", "panel-users"]) $(p).hidden = p !== id || !$(p).hidden;
-  if (id === "panel-users" && !$(id).hidden) loadUsers();
-}
-
-$("acct-btn").onclick = () => togglePanel("panel-account");
-$("users-btn").onclick = () => togglePanel("panel-users");
+$("acct-btn").onclick = () => {
+  $("panel-account").hidden = !$("panel-account").hidden;
+};
 $("logout").onclick = async () => {
   await api("/api/logout", { method: "POST" });
   location.replace("/login");
@@ -698,57 +672,11 @@ $("pw-form").addEventListener("submit", async (e) => {
   if (ok) f.reset();
 });
 
-async function loadUsers() {
-  const { ok, data } = await api("/api/users");
-  if (!ok) return setMsg("users-msg", data.error, false);
-  const tb = $("user-rows");
-  tb.replaceChildren();
-  for (const u of data.users) {
-    const self = u.username === me.username;
-    const tr = tb.insertRow();
-    cell(tr, self ? `${u.username} (you)` : u.username);
-    cell(tr, u.role);
-    cell(tr, u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : "never", "muted");
-    const td = tr.insertCell();
-    const action = (label, fn) => {
-      const b = document.createElement("button");
-      b.textContent = label;
-      b.disabled = self; // your own account is managed under Account
-      b.onclick = async () => {
-        const res = await fn();
-        if (!res) return;
-        setMsg("users-msg", res.ok ? "Done." : res.data.error, res.ok);
-        loadUsers();
-      };
-      td.append(b);
-    };
-    const patch = (body) => api(`/api/users/${u.username}`, { method: "PATCH", body });
-    action(u.role === "admin" ? "Make user" : "Make admin", () => patch({ role: u.role === "admin" ? "user" : "admin" }));
-    action("Reset password", () => {
-      const password = prompt(`New password for ${u.username} (10-128 characters):`);
-      return password ? patch({ password }) : null;
-    });
-    action("Delete", () => (confirm(`Delete user ${u.username}?`) ? api(`/api/users/${u.username}`, { method: "DELETE" }) : null));
-  }
-}
-
-$("user-add").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const f = e.target;
-  const { ok, data } = await api("/api/users", {
-    method: "POST",
-    body: { username: f.username.value, password: f.password.value, role: f.role.value },
-  });
-  setMsg("users-msg", ok ? `Created ${data.username}.` : data.error, ok);
-  if (ok) f.reset();
-  loadUsers();
-});
-
 (async () => {
   me = (await api("/api/me")).data;
   $("who").textContent = `${me.username} (${me.role})`;
   $("pw-form").username.value = me.username; // lets password managers update the right entry
-  $("users-btn").hidden = me.role !== "admin";
+  $("admin-link").hidden = me.role !== "admin";
   load();
   setInterval(load, 3000);
 })();

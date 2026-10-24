@@ -166,6 +166,14 @@ export class SessionStore {
     return crypto.createHash("sha256").update(token).digest("hex");
   }
 
+  // Live sessions only: expired ones linger in the map until the next sweep.
+  count() {
+    const t = this.now();
+    let n = 0;
+    for (const s of this.sessions.values()) if (t - s.seen <= this.idleMs && t - s.created <= this.maxMs) n++;
+    return n;
+  }
+
   create(username) {
     const token = crypto.randomBytes(32).toString("base64url");
     const t = this.now();

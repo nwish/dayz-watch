@@ -219,6 +219,39 @@ test("stats: API and page require login, validate input, 404 unknown servers, an
   assert.equal((await c.call("GET", `/api/servers/${id}/stats`)).status, 404);
 });
 
+test("admin: page and overview API are admin-only and never leak credentials", async () => {
+  const anon = client();
+  assert.equal((await anon.call("GET", "/api/admin/overview")).status, 401);
+  const anonPage = await anon.call("GET", "/admin");
+  assert.equal(anonPage.status, 302);
+  assert.equal(anonPage.headers.get("location"), "/login");
+
+  const admin = await loginAs("admin", ADMIN_PW);
+  assert.equal((await admin.call("POST", "/api/users", { username: "gina", password: "ginas long password", role: "user" })).status, 201);
+  const gina = await loginAs("gina", "ginas long password");
+  assert.equal((await gina.call("GET", "/api/admin/overview")).status, 403);
+  const denied = await gina.call("GET", "/admin");
+  assert.equal(denied.status, 302);
+  assert.equal(denied.headers.get("location"), "/");
+
+  const added = await admin.call("POST", "/api/servers", { host: "127.0.0.1", queryPort: 9, webhookUrl: "" });
+  const o = await admin.call("GET", "/api/admin/overview");
+  assert.equal(o.status, 200);
+  assert.match(o.json.runtime.node, /^v\d+/);
+  assert.ok(o.json.counts.users >= 2 && o.json.counts.admins >= 1 && o.json.counts.activeSessions >= 2);
+  assert.equal(o.json.db.retentionDays, 90);
+  assert.ok(o.json.db.pageSize > 0);
+  const row = o.json.db.perServer.find((s) => s.serverId === added.json.id);
+  assert.equal(row.address, "127.0.0.1:9");
+  assert.equal(row.deleted, false);
+  assert.doesNotMatch(o.text, /scrypt|ginas long password/);
+  assert.equal((await admin.call("DELETE", `/api/servers/${added.json.id}`)).status, 200);
+
+  const page = await admin.call("GET", "/admin");
+  assert.equal(page.status, 200);
+  assert.match(page.text, /Database/);
+});
+
 // Keep last: it locks this machine's IP out of /api/login for 15 minutes.
 test("rate limit: one IP guessing many usernames gets locked out too", async () => {
   const c = client();

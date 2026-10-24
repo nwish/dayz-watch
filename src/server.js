@@ -22,6 +22,7 @@ const INDEX_HTML = page("index.html");
 const LOGIN_HTML = page("login.html");
 const FAVICON = page("favicon.svg");
 const STATS_HTML = page("stats.html");
+const ADMIN_HTML = page("admin.html");
 
 const FIFTEEN_MIN = 15 * 60e3;
 const store = new Store(DATA_DIR);
@@ -131,6 +132,36 @@ function redirect(res, location) {
   res.end();
 }
 
+// Everything the admin page shows besides the user list: runtime, file sizes, and the history DB.
+function adminOverview() {
+  const db = stats.dbStats();
+  const known = new Map(store.list().map((s) => [s.id, s]));
+  const rows = new Map(db.perServer.map((r) => [r.serverId, r]));
+  const perServer = [...known.values()].map((s) => ({
+    serverId: s.id,
+    name: monitor.status(s.id).info?.name ?? null,
+    address: `${s.host}:${s.queryPort}`,
+    deleted: false,
+    ...(rows.get(s.id) ?? { buckets: 0, polls: 0, ok: 0, first: null, last: null }),
+  }));
+  for (const r of db.perServer) if (!known.has(r.serverId)) perServer.push({ name: null, address: null, deleted: true, ...r }); // history for a server that no longer exists
+  const size = (name) => {
+    try {
+      return fs.statSync(path.join(DATA_DIR, name)).size;
+    } catch {
+      return null;
+    }
+  };
+  const mem = process.memoryUsage();
+  const list = users.list();
+  return {
+    runtime: { node: process.version, uptimeSec: Math.round(process.uptime()), rssBytes: mem.rss, heapUsedBytes: mem.heapUsed, pollSeconds: POLL_MS / 1000, dataDir: path.resolve(DATA_DIR) },
+    counts: { servers: known.size, users: list.length, admins: list.filter((u) => u.role === "admin").length, activeSessions: sessions.count() },
+    files: { serversJson: size("servers.json"), usersJson: size("users.json") },
+    db: { ...db, perServer },
+  };
+}
+
 function serverView(s) {
   return {
     id: s.id,
@@ -227,6 +258,12 @@ async function api(req, res, url, session) {
     return reply(res, 200, { ok: true });
   }
 
+  // ---- admin overview (admin) ----
+  if (method === "GET" && pathname === "/api/admin/overview") {
+    requireAdmin();
+    return reply(res, 200, adminOverview());
+  }
+
   // ---- user management (admin) ----
   if (pathname === "/api/users" || pathname.startsWith("/api/users/")) {
     requireAdmin();
@@ -295,6 +332,9 @@ const server = http.createServer(async (req, res) => {
       return pathname.startsWith("/api/") ? reply(res, 401, { error: "authentication required" }) : redirect(res, "/login");
     }
     if (req.method === "GET" && pathname === "/") return reply(res, 200, INDEX_HTML, "text/html; charset=utf-8");
+    if (req.method === "GET" && pathname === "/admin") {
+      return session.user.role === "admin" ? reply(res, 200, ADMIN_HTML, "text/html; charset=utf-8") : redirect(res, "/");
+    }
     const statsPage = req.method === "GET" && /^\/servers\/([\w-]+)$/.exec(pathname);
     if (statsPage) return store.get(statsPage[1]) ? reply(res, 200, STATS_HTML, "text/html; charset=utf-8") : redirect(res, "/");
     if (pathname.startsWith("/api/")) return await api(req, res, url, session);

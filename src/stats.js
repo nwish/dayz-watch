@@ -3,6 +3,7 @@
 // retention limit regardless of POLL_SECONDS. Queries aggregate those buckets to whatever
 // resolution the chart needs. Uses the built-in node:sqlite: no dependencies.
 import { DatabaseSync } from "node:sqlite";
+import fs from "node:fs";
 
 export const BUCKET_S = 300;
 export const RETENTION_S = 90 * 86400;
@@ -21,6 +22,7 @@ const avg = (sum, ok) => (ok > 0 ? round1(sum / ok) : null);
 export class Stats {
   // file: path to the database, or ":memory:". now(): seconds, injectable for tests.
   constructor(file, { now = () => Date.now() / 1000 } = {}) {
+    this.file = file;
     this.now = now;
     this.db = new DatabaseSync(file);
     this.db.exec(`
@@ -64,6 +66,35 @@ export class Stats {
   prune() {
     const cutoff = Math.floor((this.now() - RETENTION_S) / BUCKET_S) * BUCKET_S;
     return Number(this.db.prepare("DELETE FROM samples WHERE bucket < ?").run(cutoff).changes);
+  }
+
+  // Admin view of the database itself: totals, per-server coverage, page/file sizes.
+  dbStats() {
+    const one = (sql) => this.db.prepare(sql).get();
+    const t = one("SELECT COUNT(*) AS rows, COALESCE(SUM(n), 0) AS polls, COALESCE(SUM(ok), 0) AS ok, MIN(bucket) AS oldest, MAX(bucket) AS newest FROM samples");
+    const perServer = this.db
+      .prepare("SELECT server_id AS serverId, COUNT(*) AS buckets, SUM(n) AS polls, SUM(ok) AS ok, MIN(bucket) AS first, MAX(bucket) AS last FROM samples GROUP BY server_id ORDER BY buckets DESC")
+      .all();
+    const size = (p) => {
+      try {
+        return fs.statSync(p).size;
+      } catch {
+        return null; // :memory:, or the -wal/-shm file doesn't exist right now
+      }
+    };
+    return {
+      rows: t.rows,
+      polls: t.polls,
+      answered: t.ok,
+      oldest: t.oldest,
+      newest: t.newest,
+      pageSize: one("PRAGMA page_size").page_size,
+      pageCount: one("PRAGMA page_count").page_count,
+      freePages: one("PRAGMA freelist_count").freelist_count,
+      files: { db: size(this.file), wal: size(`${this.file}-wal`), shm: size(`${this.file}-shm`) },
+      retentionDays: RETENTION_S / 86400,
+      perServer: perServer.map((s) => ({ ...s })),
+    };
   }
 
   close() {
