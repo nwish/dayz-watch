@@ -2,6 +2,7 @@ import http from "node:http";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { queryInfo } from "./a2s.js";
+import { Directory, DEFAULT_DIRECTORY_URL } from "./directory.js";
 import { Store } from "./store.js";
 import { Monitor } from "./monitor.js";
 import { AuthError, FailureLimiter, SessionStore, UserStore, bootstrapAdmin, validatePassword } from "./auth.js";
@@ -10,6 +11,7 @@ const PORT = Number(process.env.PORT ?? 8080);
 const DATA_DIR = process.env.DATA_DIR ?? "./data";
 const POLL_MS = Math.max(5, Number(process.env.POLL_SECONDS ?? 30)) * 1000;
 const DEFAULT_WEBHOOK = process.env.DISCORD_WEBHOOK_URL || null;
+const directory = new Directory({ url: process.env.DIRECTORY_URL || DEFAULT_DIRECTORY_URL });
 const TRUST_PROXY = process.env.TRUST_PROXY === "true";
 const COOKIE_SECURE = process.env.COOKIE_SECURE === "true";
 const COOKIE_NAME = "dw_session";
@@ -188,6 +190,9 @@ async function api(req, res, url, session) {
   // ---- servers (any signed-in user) ----
   if (method === "GET" && pathname === "/api/servers") {
     return reply(res, 200, { defaultWebhook: Boolean(DEFAULT_WEBHOOK), servers: store.list().map(serverView) });
+  }
+  if (method === "GET" && pathname === "/api/directory") {
+    return reply(res, 200, { servers: await directory.search(url.searchParams.get("q"), Number(url.searchParams.get("limit"))) });
   }
   if (method === "POST" && pathname === "/api/servers") {
     const s = store.add(await readJson(req));

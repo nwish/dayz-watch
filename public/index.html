@@ -17,6 +17,17 @@
   #add { display: grid; grid-template-columns: 2fr 1fr; gap: .6rem; }
   #add input[name=webhookUrl] { grid-column: 1 / -1; }
   input, button, select { font: inherit; padding: .5rem .6rem; background: #1e2127; color: inherit; border: 1px solid #333840; border-radius: 4px; }
+  .combo { grid-column: 1 / -1; position: relative; }
+  .combo input { width: 100%; box-sizing: border-box; }
+  #dir-list { position: absolute; z-index: 5; left: 0; right: 0; top: 100%; margin: 2px 0 0; padding: 0; list-style: none; max-height: 22rem; overflow-y: auto; background: #1e2127; border: 1px solid #333840; border-radius: 4px; box-shadow: 0 8px 24px #0009; }
+  #dir-list[hidden] { display: none; }
+  #dir-list li { padding: .45rem .6rem; cursor: pointer; border-bottom: 1px solid #2a2d33; }
+  #dir-list li:last-child { border-bottom: 0; }
+  #dir-list li[aria-selected=true], #dir-list li:hover { background: #2a2f38; }
+  #dir-list li.note { cursor: default; color: #9aa0a6; }
+  #dir-list li.note:hover { background: none; }
+  #dir-list .dn { overflow-wrap: anywhere; }
+  #dir-list .dm { font-size: .85em; color: #9aa0a6; }
   button:disabled { opacity: .5; cursor: default; }
   button:disabled:hover { border-color: #333840; }
   header { display: flex; justify-content: space-between; align-items: center; }
@@ -122,6 +133,10 @@
 
 <h2 style="font-size:1.05rem">Add server</h2>
 <form id="add">
+  <div class="combo">
+    <input id="dir-q" type="search" placeholder="Search public servers by name, map, number or IP (or fill in the fields below)" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="dir-list" aria-autocomplete="list">
+    <ul id="dir-list" role="listbox" hidden></ul>
+  </div>
   <input name="host" placeholder="Host or IP, e.g. 85.190.157.254" required>
   <input name="queryPort" type="number" min="1" max="65535" placeholder="Query port (game port + 1)" required>
   <input name="webhookUrl" id="webhook" placeholder="Discord webhook URL (optional; blank = monitor only unless a default is set)" autocomplete="off">
@@ -513,6 +528,109 @@ document.getElementById("add").addEventListener("submit", async (e) => {
   if (ok) f.reset();
   load();
 });
+
+// ---- Server directory autocomplete ----
+// Typing in the search box queries /api/directory; picking a result fills host + query port.
+const dirQ = document.getElementById("dir-q");
+const dirList = document.getElementById("dir-list");
+const addForm = document.getElementById("add");
+let dirItems = [];
+let dirActive = -1;
+let dirSeq = 0;
+let dirTimer;
+
+function dirClose() {
+  dirList.hidden = true;
+  dirQ.setAttribute("aria-expanded", "false");
+  dirActive = -1;
+}
+
+function dirHighlight(i) {
+  dirActive = i;
+  [...dirList.children].forEach((li, n) => li.setAttribute("aria-selected", String(n === i)));
+  dirList.children[i]?.scrollIntoView({ block: "nearest" });
+}
+
+function dirNote(text) {
+  const li = document.createElement("li");
+  li.className = "note";
+  li.textContent = text;
+  dirItems = []; // the note isn't selectable; drop stale results so arrows/Enter can't pick them
+  dirList.replaceChildren(li);
+  dirList.hidden = false;
+}
+
+function dirPick(s) {
+  addForm.host.value = s.host;
+  addForm.queryPort.value = s.queryPort;
+  dirQ.value = s.name;
+  dirClose();
+  addForm.webhookUrl.focus();
+}
+
+function dirRender(servers) {
+  dirItems = servers;
+  dirList.replaceChildren(
+    ...servers.map((s) => {
+      const li = document.createElement("li");
+      li.setAttribute("role", "option");
+      const dn = document.createElement("div");
+      dn.className = "dn";
+      dn.textContent = s.name;
+      const dm = document.createElement("div");
+      dm.className = "dm";
+      dm.textContent = [`${s.host}:${s.queryPort}`, s.map, `${s.players}/${s.maxPlayers}`, s.password ? "password" : null].filter(Boolean).join(" · ");
+      li.append(dn, dm);
+      li.addEventListener("mousedown", (ev) => {
+        ev.preventDefault(); // keep focus in the input so blur doesn't close the list first
+        dirPick(s);
+      });
+      return li;
+    }),
+  );
+  dirList.hidden = false;
+  dirQ.setAttribute("aria-expanded", "true");
+  dirHighlight(-1);
+}
+
+async function dirSearch() {
+  const q = dirQ.value.trim();
+  const seq = ++dirSeq;
+  if (q.length < 2) return dirClose();
+  let res;
+  try {
+    res = await api(`/api/directory?q=${encodeURIComponent(q)}&limit=10`);
+  } catch {
+    return;
+  }
+  if (seq !== dirSeq) return; // a newer keystroke superseded this response
+  if (!res.ok) return dirNote(res.data.error ?? "Server search failed. Enter host and port manually.");
+  if (!res.data.servers.length) return dirNote("No matching public servers. Enter host and port manually.");
+  dirRender(res.data.servers);
+}
+
+dirQ.addEventListener("input", () => {
+  clearTimeout(dirTimer);
+  dirTimer = setTimeout(dirSearch, 200);
+});
+dirQ.addEventListener("keydown", (e) => {
+  if (dirList.hidden) return;
+  if (e.key === "Escape") {
+    e.preventDefault(); // type=search would otherwise clear the typed text
+    return dirClose();
+  }
+  if (!dirItems.length) return;
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    const n = dirItems.length;
+    dirHighlight(e.key === "ArrowDown" ? (dirActive + 1) % n : (dirActive - 1 + n) % n);
+  } else if (e.key === "Enter" && dirActive >= 0) {
+    e.preventDefault(); // pick the result instead of submitting the form
+    dirPick(dirItems[dirActive]);
+  }
+});
+dirQ.addEventListener("focus", () => dirQ.value.trim().length >= 2 && dirItems.length && (dirList.hidden = false));
+document.addEventListener("click", (e) => e.target.closest(".combo") || dirClose());
 
 // ---- Session, account and user management ----
 const $ = (id) => document.getElementById(id);

@@ -22,6 +22,7 @@ Open `http://<host>:8080` and sign in. Everything else (servers, users) is manag
 | `COOKIE_SECURE` | `false` | Mark the session cookie `Secure`. Set `true` when served over HTTPS (implied by `TRUST_PROXY=true` when the proxy sends `X-Forwarded-Proto: https`). |
 | `DISCORD_WEBHOOK_URL` | unset | Default webhook, used by servers added without their own. Optional: with no webhook at all, servers are still monitored in the UI but nothing is posted. |
 | `POLL_SECONDS` | 30 | Poll interval (minimum 5). |
+| `DIRECTORY_URL` | DZSA Launcher list | JSON list of public servers used by the add-server search (see below). Override only to point at a compatible mirror. |
 | `HOST_PORT` | 8080 | Host port published by compose (the container itself always listens on 8080). |
 
 Data lives in the `dayz-watch-data` volume: `servers.json` (per-server webhook URLs in plain text, never returned by the API) and `users.json` (scrypt password hashes, file mode 600).
@@ -43,6 +44,12 @@ The container needs outbound UDP to the query ports and outbound HTTPS to Discor
 - First reading after start or add is a silent baseline.
 - A post is sent only when the count differs from the previous successful reading, e.g. `**Name** (map): players 5 → **6**/60 (+1)`.
 - A failed query (timeout, DNS) is shown in the UI and is not treated as a change. A server restart shows as a drop to 0 and a climb back.
+
+## Finding servers to add
+
+The *Add server* form has a search box. Type part of a server name, number (e.g. `2305`), map, or IP (`85.190.157.254` or `ip:port`) and pick a result: it fills in the host and query port. All words you type must match; name-prefix matches rank first, then busier servers. Typing host and port by hand still works.
+
+The list comes from the DZSA Launcher's public endpoint (`https://dayzsalauncher.com/api/v2/launcher/servers/dayz`, ~10k servers, no API key). BattleMetrics and the Steam Web API both need a paid or keyed account now, so they aren't used. The container downloads the list (~13 MB) on the first search, keeps a trimmed copy in memory, and refreshes it after 10 minutes. If a refresh fails it keeps serving the old list; if the very first download fails the search box shows an error and manual entry still works. This is a community endpoint with no SLA, and the container needs outbound HTTPS to it.
 
 ## Server overlay
 
