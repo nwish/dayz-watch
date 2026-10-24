@@ -26,7 +26,7 @@ Open `http://<host>:8080` and sign in. Everything else (servers, users) is manag
 | `DIRECTORY_URL` | DZSA Launcher list | JSON list of public servers used by the add-server search (see below). Override only to point at a compatible mirror. |
 | `HOST_PORT` | 8080 | Host port published by compose (the container itself always listens on 8080). |
 
-Data lives in the `dayz-watch-data` volume: `servers.json` (per-server webhook URLs in plain text, never returned by the API) and `users.json` (scrypt password hashes, file mode 600).
+Data lives in the `dayz-watch-data` volume: `servers.json` (per-server webhook URLs in plain text, never returned by the API), `users.json` (scrypt password hashes, file mode 600) and `stats.db` (the 90-day player history, a SQLite file; the `-wal`/`-shm` files next to it are normal).
 
 The container needs outbound UDP to the query ports and outbound HTTPS to Discord. Put TLS in front of it (reverse proxy) for anything beyond a trusted LAN: the login form sends the password in the clear over plain HTTP.
 
@@ -51,6 +51,23 @@ The container needs outbound UDP to the query ports and outbound HTTPS to Discor
 The *Add server* form has a search box. Type part of a server name, number (e.g. `2305`), map, or IP (`85.190.157.254` or `ip:port`) and pick a result: it fills in the host and query port. All words you type must match; name-prefix matches rank first, then busier servers. Typing host and port by hand still works.
 
 The list comes from the DZSA Launcher's public endpoint (`https://dayzsalauncher.com/api/v2/launcher/servers/dayz`, ~10k servers, no API key). BattleMetrics and the Steam Web API both need a paid or keyed account now, so they aren't used. The container downloads the list (~13 MB) on the first search, keeps a trimmed copy in memory, and refreshes it after 10 minutes. If a refresh fails it keeps serving the old list; if the very first download fails the search box shows an error and manual entry still works. This is a community endpoint with no SLA, and the container needs outbound HTTPS to it.
+
+## Statistics
+
+Every poll of every monitored server is recorded, and 90 days are kept (older data is pruned hourly). Each row in the server list has a **Stats** button that opens `/servers/<id>`:
+
+- **Summary cards:** current count, average, peak (and when), lowest, share of polls the server answered, and the busiest weekday + hour.
+- **Players over time:** average line with the min–max band for each period; red shading where the server didn't answer. Hover for exact values. Periods are 5 min (24 h), 30 min (7 days), 2 h (30 days) or 6 h (90 days).
+- **Daily trend:** average and peak per day (7 days and up).
+- **Busiest times:** a weekday × hour heatmap of average players (7 days and up), so you can see when a server fills up.
+
+Notes:
+
+- Polls are folded into 5-minute buckets (poll count, answered polls, sum/min/max players), so storage is about 26k small rows per server over 90 days whatever `POLL_SECONDS` is. Deleting a server deletes its history.
+- Days and the heatmap use the browser's timezone; one fixed UTC offset is applied to the whole range, so around a daylight-saving change the hours shift by one.
+- "Answered polls" counts only polls made while the container was running. Time the container was down is a gap in the charts, not downtime.
+- History starts when the server is added (or when you upgrade); there is no backfill. The page says how much of the selected window has been collected.
+- The database uses Node's built-in `node:sqlite` (no dependencies), which Node 22 still labels experimental; the start command silences that warning.
 
 ## Server overlay
 

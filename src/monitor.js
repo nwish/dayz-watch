@@ -18,12 +18,23 @@ export async function postWebhook(url, content) {
 
 export class Monitor {
   // query(host, port) -> {name,map,players,maxPlayers}; notify(url, content) -> Promise
-  constructor({ query, notify = postWebhook, defaultWebhook = null, pollMs = 30_000 }) {
+  // onSample(server, {players,maxPlayers} | null): called once per finished poll (null = it failed).
+  constructor({ query, notify = postWebhook, defaultWebhook = null, pollMs = 30_000, onSample = null }) {
     this.query = query;
     this.notify = notify;
     this.defaultWebhook = defaultWebhook;
     this.pollMs = pollMs;
+    this.onSample = onSample;
     this.state = new Map(); // id -> {info, lastPlayers, error, checkedAt, timer}
+  }
+
+  // A history-store failure must never stop the polling loop.
+  #sample(server, sample) {
+    try {
+      this.onSample?.(server, sample);
+    } catch (e) {
+      console.error(`${ts()} recording sample for ${server.host}:${server.queryPort} failed: ${e.message}`);
+    }
   }
 
   start(server) {
@@ -57,14 +68,17 @@ export class Monitor {
     try {
       info = await this.query(server.host, server.queryPort);
     } catch (e) {
+      if (st.stopped) return;
       st.error = e.message; // a failed query is not a player change; keep last known count
       st.checkedAt = ts();
+      this.#sample(server, null);
       return;
     }
     if (st.stopped) return;
     st.error = null;
     st.checkedAt = ts();
     st.info = info;
+    this.#sample(server, { players: info.players, maxPlayers: info.maxPlayers });
     const prev = st.lastPlayers;
     st.lastPlayers = info.players;
     if (prev === null || prev === info.players) return; // baseline or unchanged

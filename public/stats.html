@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dayz-watch – stats</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0d0f0a; --panel: #161910; --field: #1b1f14; --line: #2f3524; --raise: #262c1c;
+    --fg: #d8d5c2; --dim: #8c8f78; --hl: #a3b86c; --blood: #9b2d24; --blood-hi: #c2392d;
+    --ok: #a3c46a; --err: #e5695b; --warn: #e0a43c;
+    --display: "Bahnschrift", "Arial Narrow", "Roboto Condensed", system-ui, sans-serif;
+  }
+  html {
+    min-height: 100%;
+    background:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .85 0 0 0 0 .85 0 0 0 0 .7 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
+      radial-gradient(ellipse 120% 70% at 50% -10%, #1d2414 0%, var(--bg) 70%) fixed,
+      var(--bg);
+  }
+  body { font: 14px system-ui, sans-serif; color: var(--fg); max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
+  h1, h2, h3 { font-family: var(--display); text-transform: uppercase; letter-spacing: .09em; }
+  h1 { font-size: 1.45rem; margin: 0; display: flex; align-items: center; gap: .6rem; }
+  h1 img { width: 1.9rem; height: 1.9rem; }
+  h2 { font-size: 1.3rem; margin: 0 0 .2rem; overflow-wrap: anywhere; }
+  h3 { font-size: .95rem; margin: 0 0 .6rem; color: var(--dim); }
+  header { display: flex; justify-content: space-between; align-items: center; padding-bottom: .8rem; margin-bottom: 1.2rem; border-bottom: 1px solid var(--line); background: linear-gradient(var(--blood), var(--blood)) left bottom / 4.5rem 3px no-repeat border-box; }
+  .muted { color: var(--dim); }
+  .err { color: var(--err); }
+  button, a.btn { font: inherit; padding: .5rem .8rem; background: var(--field); color: inherit; border: 1px solid var(--line); border-radius: 3px; cursor: pointer; text-decoration: none; display: inline-block; }
+  button:hover, a.btn:hover { border-color: var(--hl); }
+  .bar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: 1rem 0; }
+  #notice.err { color: var(--err); }
+  .bar .spacer { flex: 1; }
+  #ranges button[aria-pressed=true] { background: var(--raise); border-color: var(--hl); color: var(--hl); }
+  #notice { margin: 0 0 1rem; color: var(--warn); min-height: 1.2em; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .6rem; margin-bottom: 1.6rem; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--hl); border-radius: 3px; padding: .6rem .8rem; }
+  .stat .k { font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); }
+  .stat .v { font-size: 1.7rem; font-weight: 700; line-height: 1.2; margin: .15rem 0; }
+  .stat .v small { font-size: .9rem; color: var(--dim); font-weight: 400; }
+  .stat .s { font-size: .8rem; color: var(--dim); overflow-wrap: anywhere; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 3px; padding: 1rem; margin-bottom: 1.2rem; }
+  section[hidden] { display: none; }
+  .chart { position: relative; width: 100%; }
+  .chart svg { display: block; }
+  .axis text { fill: var(--dim); font-size: 11px; }
+  .axis line, .axis path { stroke: var(--line); }
+  .tip { position: absolute; pointer-events: none; background: var(--field); border: 1px solid var(--hl); border-radius: 3px; padding: .35rem .55rem; font-size: .8rem; line-height: 1.35; white-space: nowrap; box-shadow: 0 6px 18px #000a; z-index: 3; }
+  .tip[hidden] { display: none; }
+  .tip b { font-weight: 600; }
+  .legend { display: flex; flex-wrap: wrap; gap: .4rem 1.2rem; margin-top: .5rem; font-size: .8rem; color: var(--dim); }
+  .legend i { display: inline-block; width: .9rem; height: .5rem; margin-right: .35rem; vertical-align: middle; border-radius: 1px; }
+  .heatwrap { overflow-x: auto; }
+  .heat { display: grid; grid-template-columns: 2.6rem repeat(24, minmax(1.05rem, 1fr)); gap: 2px; min-width: 34rem; }
+  .heat .lbl { font-size: .7rem; color: var(--dim); display: flex; align-items: center; }
+  .heat .hr { font-size: .65rem; color: var(--dim); text-align: center; }
+  .heat .cell { height: 1.55rem; border-radius: 2px; background: var(--field); }
+  .scale { display: flex; align-items: center; gap: .5rem; margin-top: .6rem; font-size: .75rem; color: var(--dim); }
+  .scale span.ramp { width: 8rem; height: .5rem; border-radius: 2px; background: linear-gradient(90deg, rgba(163,184,108,.12), rgba(163,184,108,1)); }
+  @media (max-width: 640px) {
+    body { margin: 1rem auto; }
+    h1 { font-size: 1.2rem; }
+    button, a.btn { padding: .65rem .8rem; }
+    .stat .v { font-size: 1.4rem; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1><img src="/favicon.svg" alt="">dayz-watch</h1>
+  <nav><a class="btn" href="/">&larr; Servers</a></nav>
+</header>
+
+<h2 id="name">Loading…</h2>
+<div class="muted" id="addr"></div>
+
+<div class="bar">
+  <div id="ranges" role="group" aria-label="Time range">
+    <button data-range="24h" aria-pressed="false">24 h</button>
+    <button data-range="7d" aria-pressed="false">7 days</button>
+    <button data-range="30d" aria-pressed="false">30 days</button>
+    <button data-range="90d" aria-pressed="false">90 days</button>
+  </div>
+  <span class="spacer"></span>
+  <span class="muted" id="updated"></span>
+</div>
+<div id="notice"></div>
+
+<div class="cards" id="cards"></div>
+
+<section>
+  <h3>Players over time</h3>
+  <div class="chart" id="timeline"></div>
+  <div class="legend" id="timeline-legend">
+    <span><i style="background:var(--hl)"></i>average</span>
+    <span><i style="background:rgba(163,184,108,.25)"></i>min&ndash;max in period</span>
+    <span><i style="background:rgba(229,105,91,.45)"></i>server not answering</span>
+    <span id="res"></span>
+  </div>
+</section>
+
+<section id="daily-sec" hidden>
+  <h3>Daily trend</h3>
+  <div class="chart" id="daily"></div>
+  <div class="legend">
+    <span><i style="background:var(--hl)"></i>daily average</span>
+    <span><i style="background:rgba(163,184,108,.3)"></i>daily peak</span>
+  </div>
+</section>
+
+<section id="heat-sec" hidden>
+  <h3>Busiest times <span class="muted" id="tzname" style="text-transform:none;letter-spacing:0"></span></h3>
+  <div class="heatwrap"><div class="heat" id="heat"></div></div>
+  <div class="scale"><span>quiet</span><span class="ramp"></span><span id="heat-max">busy</span></div>
+</section>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const NS = "http://www.w3.org/2000/svg";
+const id = location.pathname.split("/").pop();
+const tz = -new Date().getTimezoneOffset(); // minutes east of UTC
+const RANGES = ["24h", "7d", "30d", "90d"];
+let range = new URLSearchParams(location.search).get("range");
+if (!RANGES.includes(range)) range = "7d";
+let data = null;
+
+const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const num = (n) => (n == null ? "—" : String(Math.round(n * 10) / 10));
+const fmtDay = (t) => new Date(t * 1000).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+const fmtTime = (t) => new Date(t * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+const fmtStamp = (t) => `${fmtDay(t)}, ${fmtTime(t)}`;
+
+function s(tag, attrs = {}, ...kids) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  e.append(...kids);
+  return e;
+}
+
+function h(tag, props = {}, ...kids) {
+  const e = document.createElement(tag);
+  Object.assign(e, props);
+  e.append(...kids);
+  return e;
+}
+
+async function api(path) {
+  const r = await fetch(path);
+  if (r.status === 401) {
+    location.replace("/login");
+    throw new Error("signed out");
+  }
+  return { ok: r.ok, status: r.status, data: await r.json().catch(() => ({})) };
+}
+
+// Axis scale with ~4 gridlines on 1/2/5 steps.
+function niceScale(max) {
+  const raw = Math.max(max, 4) / 4;
+  const p = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 5, 10].find((m) => m * p >= raw) * p;
+  return { step, top: Math.ceil(Math.max(max, 1) / step) * step };
+}
+
+function stepLabel(sec) {
+  return sec < 3600 ? `${sec / 60} min` : `${sec / 3600} h`;
+}
+
+// ---- Summary cards ----
+function stat(label, value, sub, extra) {
+  const v = h("div", { className: "v" });
+  v.append(value);
+  if (extra) v.append(" ", h("small", { textContent: extra }));
+  return h("div", { className: "stat" }, h("div", { className: "k", textContent: label }), v, h("div", { className: "s", textContent: sub ?? "" }));
+}
+
+function renderCards(d) {
+  const { summary: sm, server } = d;
+  const cards = [];
+  const cur = server.info;
+  cards.push(
+    stat("Now", cur ? String(cur.players) : "—", server.error ? `query failing: ${server.error}` : cur ? `of ${cur.maxPlayers} slots` : "waiting for first poll", cur ? `/ ${cur.maxPlayers}` : ""),
+    stat("Average", num(sm.avg), sm.capacity && sm.avg != null ? `${Math.round((100 * sm.avg) / sm.capacity)}% of ${sm.capacity} slots` : ""),
+    stat("Peak", sm.max == null ? "—" : String(sm.max), sm.peakAt ? fmtStamp(sm.peakAt) : ""),
+    stat("Lowest", sm.min == null ? "—" : String(sm.min), ""),
+    stat("Answered polls", sm.uptime == null ? "—" : `${num(sm.uptime)}%`, `${sm.polls.toLocaleString()} polls`),
+    stat("Busiest hour", sm.busiest ? `${DOW[sm.busiest.dow]} ${String(sm.busiest.hr).padStart(2, "0")}:00` : "—", sm.busiest ? `avg ${num(sm.busiest.avg)} players` : ""),
+  );
+  $("cards").replaceChildren(...cards);
+}
+
+// ---- Timeline ----
+function drawTimeline(d) {
+  const box = $("timeline");
+  box.replaceChildren();
+  const W = Math.max(300, box.clientWidth);
+  const H = 280;
+  const m = { l: 40, r: 10, t: 10, b: 26 };
+  const pw = W - m.l - m.r;
+  const ph = H - m.t - m.b;
+  const pts = d.series;
+  const { step, top } = niceScale(Math.max(0, ...pts.map((p) => p.hi ?? 0)));
+  const x = (t) => m.l + ((t - d.from) / (d.to - d.from)) * pw;
+  const y = (v) => m.t + ph - (v / top) * ph;
+  const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: "img", "aria-label": "Players over time" });
+
+  const axis = s("g", { class: "axis" });
+  for (let v = 0; v <= top; v += step) {
+    axis.append(s("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v) }), s("text", { x: m.l - 6, y: y(v) + 4, "text-anchor": "end" }, String(v)));
+  }
+  const baseStep = { "24h": 4 * 3600, "7d": 86400, "30d": 5 * 86400, "90d": 15 * 86400 }[d.range];
+  const tickStep = baseStep * Math.max(1, Math.ceil(72 / ((baseStep / (d.to - d.from)) * pw))); // keep labels >= ~72px apart
+  const off = tz * 60;
+  for (let t = Math.ceil((d.from + off) / tickStep) * tickStep - off; t < d.to; t += tickStep) {
+    const label = d.range === "24h" ? new Date(t * 1000).toLocaleTimeString(undefined, { hour: "numeric" }) : new Date(t * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    axis.append(s("line", { x1: x(t), x2: x(t), y1: m.t, y2: m.t + ph, opacity: ".45" }), s("text", { x: x(t), y: H - 7, "text-anchor": "middle" }, label));
+  }
+  svg.append(axis);
+
+  const w = Math.max(2, x(d.from + d.step) - x(d.from));
+  for (const p of pts) {
+    if (p.avg == null) svg.append(s("rect", { x: x(p.t), y: m.t, width: w, height: ph, fill: "var(--err)", opacity: ".3" }));
+  }
+
+  // Contiguous runs of answered periods: a gap in the data (container down) breaks the line.
+  const runs = [];
+  let prev = null;
+  for (const p of pts) {
+    if (p.avg == null) {
+      prev = null;
+      continue;
+    }
+    if (!prev || p.t - prev.t > d.step * 1.5) runs.push([]);
+    runs[runs.length - 1].push(p);
+    prev = p;
+  }
+  const cx = (p) => x(p.t + d.step / 2);
+  for (const run of runs) {
+    if (run.length === 1) {
+      const p = run[0];
+      svg.append(s("rect", { x: cx(p) - w / 2, y: y(p.hi), width: w, height: Math.max(1, y(p.lo) - y(p.hi)), fill: "var(--hl)", opacity: ".25" }), s("circle", { cx: cx(p), cy: y(p.avg), r: 2.5, fill: "var(--hl)" }));
+      continue;
+    }
+    const upper = run.map((p) => `${cx(p)},${y(p.hi)}`);
+    const lower = run.map((p) => `${cx(p)},${y(p.lo)}`).reverse();
+    svg.append(s("path", { d: `M${upper.join("L")}L${lower.join("L")}Z`, fill: "var(--hl)", opacity: ".22" }));
+    svg.append(s("path", { d: `M${run.map((p) => `${cx(p)},${y(p.avg)}`).join("L")}`, fill: "none", stroke: "var(--hl)", "stroke-width": 1.8, "stroke-linejoin": "round" }));
+  }
+
+  const guide = s("line", { y1: m.t, y2: m.t + ph, stroke: "var(--fg)", opacity: ".5", visibility: "hidden" });
+  const dot = s("circle", { r: 4, fill: "var(--hl)", stroke: "var(--bg)", "stroke-width": 1.5, visibility: "hidden" });
+  const hit = s("rect", { x: m.l, y: m.t, width: pw, height: ph, fill: "transparent" });
+  svg.append(guide, dot, hit);
+  box.append(svg);
+
+  const tip = h("div", { className: "tip", hidden: true });
+  box.append(tip);
+  const hide = () => {
+    tip.hidden = true;
+    guide.setAttribute("visibility", "hidden");
+    dot.setAttribute("visibility", "hidden");
+  };
+  hit.addEventListener("pointerleave", hide);
+  hit.addEventListener("pointermove", (e) => {
+    const rect = svg.getBoundingClientRect();
+    const t = d.from + ((e.clientX - rect.left - m.l) / pw) * (d.to - d.from);
+    const p = pts.find((q) => t >= q.t && t < q.t + d.step);
+    if (!p) return hide();
+    const gx = cx(p);
+    guide.setAttribute("x1", gx);
+    guide.setAttribute("x2", gx);
+    guide.setAttribute("visibility", "visible");
+    if (p.avg == null) dot.setAttribute("visibility", "hidden");
+    else {
+      dot.setAttribute("cx", gx);
+      dot.setAttribute("cy", y(p.avg));
+      dot.setAttribute("visibility", "visible");
+    }
+    tip.replaceChildren(
+      h("b", { textContent: fmtStamp(p.t) }),
+      h("br"),
+      p.avg == null ? "server not answering" : `avg ${num(p.avg)} · range ${p.lo}–${p.hi}`,
+      h("br"),
+      `${num(p.up)}% of polls answered`,
+    );
+    tip.hidden = false;
+    const left = gx + 12 + tip.offsetWidth > W ? gx - 12 - tip.offsetWidth : gx + 12;
+    tip.style.left = `${Math.max(0, left)}px`;
+    tip.style.top = `${m.t + 6}px`;
+  });
+  $("res").textContent = `Each point covers ${stepLabel(d.step)}.`;
+}
+
+// ---- Daily trend ----
+function drawDaily(d) {
+  const sec = $("daily-sec");
+  sec.hidden = d.range === "24h" || !d.daily.length;
+  if (sec.hidden) return;
+  const box = $("daily");
+  box.replaceChildren();
+  const W = Math.max(300, box.clientWidth);
+  const H = 220;
+  const m = { l: 40, r: 10, t: 10, b: 26 };
+  const pw = W - m.l - m.r;
+  const ph = H - m.t - m.b;
+  const days = d.daily;
+  const { step, top } = niceScale(Math.max(0, ...days.map((q) => q.peak ?? 0)));
+  const y = (v) => m.t + ph - (v / top) * ph;
+  const slot = pw / days.length;
+  const bw = Math.max(2, Math.min(40, slot * 0.7));
+  const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: "img", "aria-label": "Daily average and peak players" });
+  const axis = s("g", { class: "axis" });
+  for (let v = 0; v <= top; v += step) {
+    axis.append(s("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v) }), s("text", { x: m.l - 6, y: y(v) + 4, "text-anchor": "end" }, String(v)));
+  }
+  const every = Math.ceil(days.length / Math.max(1, Math.floor(pw / 56)));
+  days.forEach((q, i) => {
+    const cx = m.l + slot * (i + 0.5);
+    const when = new Date(`${q.date}T00:00:00Z`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+    const g = s("g", {});
+    g.append(s("title", {}, q.avg == null ? `${when}: server not answering` : `${when}\navg ${num(q.avg)} · peak ${q.peak}\n${num(q.up)}% of polls answered`));
+    if (q.avg == null) g.append(s("rect", { x: cx - bw / 2, y: m.t, width: bw, height: ph, fill: "var(--err)", opacity: ".3" }));
+    else {
+      g.append(s("rect", { x: cx - bw / 2, y: y(q.peak), width: bw, height: Math.max(1, y(0) - y(q.peak)), fill: "var(--hl)", opacity: ".3" }));
+      g.append(s("rect", { x: cx - bw / 2, y: y(q.avg), width: bw, height: Math.max(1, y(0) - y(q.avg)), fill: "var(--hl)" }));
+    }
+    g.append(s("rect", { x: cx - slot / 2, y: m.t, width: slot, height: ph, fill: "transparent" }));
+    svg.append(g);
+    if (i % every === 0) {
+      axis.append(s("text", { x: cx, y: H - 7, "text-anchor": "middle" }, new Date(`${q.date}T00:00:00Z`).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" })));
+    }
+  });
+  svg.prepend(axis);
+  box.append(svg);
+}
+
+// ---- Weekday x hour heatmap ----
+function drawHeat(d) {
+  const sec = $("heat-sec");
+  sec.hidden = d.range === "24h" || !d.heatmap.length;
+  if (sec.hidden) return;
+  $("tzname").textContent = `(${Intl.DateTimeFormat().resolvedOptions().timeZone}, average players)`;
+  const cell = new Map(d.heatmap.map((c) => [`${c.dow}:${c.hr}`, c.avg]));
+  const max = Math.max(...d.heatmap.map((c) => c.avg));
+  const grid = $("heat");
+  const kids = [h("div")];
+  for (let hr = 0; hr < 24; hr++) kids.push(h("div", { className: "hr", textContent: hr % 3 === 0 ? String(hr) : "" }));
+  for (const dow of [1, 2, 3, 4, 5, 6, 0]) {
+    kids.push(h("div", { className: "lbl", textContent: DOW[dow] }));
+    for (let hr = 0; hr < 24; hr++) {
+      const v = cell.get(`${dow}:${hr}`);
+      const c = h("div", { className: "cell" });
+      if (v != null) {
+        c.style.background = `rgba(163,184,108,${(0.12 + 0.88 * (max > 0 ? v / max : 0)).toFixed(3)})`;
+        c.title = `${DOW[dow]} ${String(hr).padStart(2, "0")}:00 — avg ${num(v)} players`;
+      }
+      kids.push(c);
+    }
+  }
+  grid.replaceChildren(...kids);
+  $("heat-max").textContent = `busy (${num(max)})`;
+}
+
+function render(d) {
+  document.title = `${d.server.info?.name ?? d.server.host} – dayz-watch stats`;
+  $("name").textContent = d.server.info?.name ?? `${d.server.host}:${d.server.queryPort}`;
+  $("addr").textContent = [`${d.server.host}:${d.server.queryPort}`, d.server.info?.map].filter(Boolean).join(" · ");
+  for (const b of document.querySelectorAll("#ranges button")) b.setAttribute("aria-pressed", String(b.dataset.range === d.range));
+  const sm = d.summary;
+  const spanDays = (d.to - d.from) / 86400;
+  let note = "";
+  if (sm.since == null) note = "No data yet. History is recorded on every poll, so charts fill in shortly.";
+  else if (sm.since > d.from + Math.max(3600, (d.to - d.from) * 0.03)) {
+    const have = (d.to - sm.since) / 86400;
+    note = `Tracking since ${fmtStamp(sm.since)}. Only ${have < 1 ? `${Math.max(1, Math.round(have * 24))} h` : `${Math.round(have * 10) / 10} days`} of the ${spanDays < 2 ? "24 h" : `${Math.round(spanDays)}-day`} window collected so far.`;
+  }
+  $("notice").textContent = note;
+  $("updated").textContent = `Updated ${fmtTime(Date.now() / 1000)}`;
+  renderCards(d);
+  drawTimeline(d);
+  drawDaily(d);
+  drawHeat(d);
+}
+
+async function load() {
+  const { ok, status, data: d } = await api(`/api/servers/${encodeURIComponent(id)}/stats?range=${range}&tz=${tz}`);
+  if (status === 404) return location.replace("/");
+  if (!ok) {
+    $("notice").textContent = d.error ?? `Could not load stats (${status})`;
+    $("notice").className = "err";
+    return;
+  }
+  $("notice").className = "";
+  data = d;
+  render(d);
+}
+
+for (const b of document.querySelectorAll("#ranges button")) {
+  b.onclick = () => {
+    range = b.dataset.range;
+    history.replaceState(null, "", `?range=${range}`);
+    load();
+  };
+}
+let resizeTimer;
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => data && render(data), 150);
+});
+load();
+setInterval(load, 60_000);
+</script>
+</body>
+</html>

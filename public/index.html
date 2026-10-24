@@ -56,6 +56,9 @@
   .inline { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
   .inline input { flex: 1 1 12rem; min-width: 0; }
   td button { margin-right: .4rem; }
+  a.btn { font: inherit; padding: .5rem .6rem; background: var(--field); color: inherit; border: 1px solid var(--line); border-radius: 3px; text-decoration: none; display: inline-block; }
+  a.btn:hover { border-color: var(--hl); }
+  td a.btn { margin-right: .4rem; }
   button { cursor: pointer; }
   button:hover { border-color: var(--hl); }
   #add button[type=submit], #user-add button[type=submit], #pw-form button[type=submit] { background: var(--blood); border-color: var(--blood-hi); color: #f3e9e0; font-weight: 600; letter-spacing: .04em; }
@@ -265,7 +268,12 @@ async function load() {
       await api(`/api/servers/${s.id}`, { method: "DELETE" });
       load();
     };
-    td.append(btn);
+    const stats = document.createElement("a");
+    stats.className = "btn";
+    stats.textContent = "Stats";
+    stats.href = `/servers/${encodeURIComponent(s.id)}`;
+    stats.onclick = (ev) => ev.stopPropagation(); // don't open the overlay
+    td.append(stats, btn);
   }
   refreshOverlay(data.servers);
 }

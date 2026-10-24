@@ -1,8 +1,10 @@
 import http from "node:http";
 import fs from "node:fs";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { queryInfo } from "./a2s.js";
 import { Directory, DEFAULT_DIRECTORY_URL } from "./directory.js";
+import { Stats } from "./stats.js";
 import { Store } from "./store.js";
 import { Monitor } from "./monitor.js";
 import { AuthError, FailureLimiter, SessionStore, UserStore, bootstrapAdmin, validatePassword } from "./auth.js";
@@ -19,6 +21,7 @@ const page = (name) => fs.readFileSync(fileURLToPath(new URL(`../public/${name}`
 const INDEX_HTML = page("index.html");
 const LOGIN_HTML = page("login.html");
 const FAVICON = page("favicon.svg");
+const STATS_HTML = page("stats.html");
 
 const FIFTEEN_MIN = 15 * 60e3;
 const store = new Store(DATA_DIR);
@@ -45,7 +48,15 @@ if (generated) {
   console.log("================================================================");
 }
 
-const monitor = new Monitor({ query: queryInfo, defaultWebhook: DEFAULT_WEBHOOK, pollMs: POLL_MS });
+const stats = new Stats(path.join(DATA_DIR, "stats.db"));
+stats.prune();
+setInterval(() => stats.prune(), 60 * 60e3).unref(); // keep 90 days
+const monitor = new Monitor({
+  query: queryInfo,
+  defaultWebhook: DEFAULT_WEBHOOK,
+  pollMs: POLL_MS,
+  onSample: (s, sample) => stats.record(s.id, sample),
+});
 store.list().forEach((s) => monitor.start(s));
 
 // ---- helpers ----
@@ -192,6 +203,14 @@ async function api(req, res, url, session) {
   if (method === "GET" && pathname === "/api/servers") {
     return reply(res, 200, { defaultWebhook: Boolean(DEFAULT_WEBHOOK), servers: store.list().map(serverView) });
   }
+  const statsReq = method === "GET" && /^\/api\/servers\/([\w-]+)\/stats$/.exec(pathname);
+  if (statsReq) {
+    const s = store.get(statsReq[1]);
+    if (!s) return reply(res, 404, { error: "not found" });
+    const tz = Number(url.searchParams.get("tz") ?? 0);
+    const offset = Number.isFinite(tz) ? Math.max(-840, Math.min(840, tz)) : 0;
+    return reply(res, 200, { server: serverView(s), ...stats.query(s.id, url.searchParams.get("range") ?? "7d", offset) });
+  }
   if (method === "GET" && pathname === "/api/directory") {
     return reply(res, 200, { servers: await directory.search(url.searchParams.get("q"), Number(url.searchParams.get("limit"))) });
   }
@@ -204,6 +223,7 @@ async function api(req, res, url, session) {
   if (delServer) {
     if (!store.remove(delServer[1])) return reply(res, 404, { error: "not found" });
     monitor.stop(delServer[1]);
+    stats.remove(delServer[1]);
     return reply(res, 200, { ok: true });
   }
 
@@ -275,6 +295,8 @@ const server = http.createServer(async (req, res) => {
       return pathname.startsWith("/api/") ? reply(res, 401, { error: "authentication required" }) : redirect(res, "/login");
     }
     if (req.method === "GET" && pathname === "/") return reply(res, 200, INDEX_HTML, "text/html; charset=utf-8");
+    const statsPage = req.method === "GET" && /^\/servers\/([\w-]+)$/.exec(pathname);
+    if (statsPage) return store.get(statsPage[1]) ? reply(res, 200, STATS_HTML, "text/html; charset=utf-8") : redirect(res, "/");
     if (pathname.startsWith("/api/")) return await api(req, res, url, session);
     reply(res, 404, { error: "not found" });
   } catch (e) {
@@ -289,4 +311,9 @@ server.listen(PORT, () => {
   if (!COOKIE_SECURE && !TRUST_PROXY) console.warn("Session cookie is not marked Secure (set COOKIE_SECURE=true when serving over HTTPS)");
 });
 
-for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => process.exit(0));
+for (const sig of ["SIGINT", "SIGTERM"]) {
+  process.on(sig, () => {
+    stats.close(); // checkpoints the WAL so a container stop leaves a clean stats.db
+    process.exit(0);
+  });
+}

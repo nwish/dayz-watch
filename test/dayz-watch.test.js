@@ -138,6 +138,42 @@ test("monitor: notify failure does not break polling or lose the new baseline", 
   assert.equal(m.state.get("s1").lastPlayers, 2);
 });
 
+test("monitor: reports every finished poll to onSample, and a throwing recorder doesn't break polling", async () => {
+  const seen = [];
+  let next;
+  const m = new Monitor({
+    query: async () => {
+      if (next instanceof Error) throw next;
+      return next;
+    },
+    notify: async () => {},
+    onSample: (server, sample) => {
+      seen.push([server.id, sample]);
+      if (seen.length === 1) throw new Error("disk full");
+    },
+  });
+  const server = { id: "s1", host: "h", queryPort: 1, webhookUrl: null };
+  m.state.set("s1", { info: null, lastPlayers: null, error: null, checkedAt: null, timer: null, stopped: false });
+  const origErr = console.error;
+  console.error = () => {};
+  try {
+    next = info(5);
+    await m.tick(server);
+    next = new Error("timeout");
+    await m.tick(server);
+    next = info(6);
+    await m.tick(server);
+  } finally {
+    console.error = origErr;
+  }
+  assert.deepEqual(seen, [["s1", { players: 5, maxPlayers: 60 }], ["s1", null], ["s1", { players: 6, maxPlayers: 60 }]]);
+  assert.equal(m.status("s1").info.players, 6);
+  m.stop("s1");
+  next = info(7);
+  await m.tick(server); // removed servers record nothing
+  assert.equal(seen.length, 3);
+});
+
 test("store: validation rejects bad host, port, and non-Discord webhook", () => {
   const ok = { host: "Example.com", queryPort: "11301" };
   assert.deepEqual(validateServerInput(ok), { host: "example.com", queryPort: 11301, webhookUrl: null });

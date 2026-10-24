@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Discord notifications when a DayZ server's player count changes, with a web UI to manage servers",
   "scripts": {
-    "start": "node src/server.js",
+    "start": "node --disable-warning=ExperimentalWarning src/server.js",
     "test": "node --test \"test/*.test.js\""
   },
   "engines": { "node": ">=22" }

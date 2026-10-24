@@ -34,8 +34,10 @@ before(async () => {
   });
 });
 
-after(() => {
+after(async () => {
+  const exited = new Promise((resolve) => proc.once("exit", resolve));
   proc.kill();
+  await exited; // the server holds stats.db open; Windows can't delete it until the process is gone
   fs.rmSync(dataDir, { recursive: true, force: true });
 });
 
@@ -185,6 +187,36 @@ test("rate limit: repeated failures lock the account, even against the correct p
   assert.match(locked.json.error, /too many/);
   // other accounts are unaffected
   await loginAs("admin", ADMIN_PW);
+});
+
+test("stats: API and page require login, validate input, 404 unknown servers, and are removed with the server", async () => {
+  const anon = client();
+  assert.equal((await anon.call("GET", "/api/servers/x/stats")).status, 401);
+  assert.equal((await anon.call("GET", "/servers/x")).status, 302);
+
+  const c = await loginAs("admin", ADMIN_PW);
+  const added = await c.call("POST", "/api/servers", { host: "127.0.0.1", queryPort: 9 });
+  assert.equal(added.status, 201);
+  const id = added.json.id;
+
+  const ok = await c.call("GET", `/api/servers/${id}/stats?range=7d&tz=120`);
+  assert.equal(ok.status, 200);
+  assert.equal(ok.json.range, "7d");
+  assert.equal(ok.json.server.id, id);
+  assert.deepEqual(Object.keys(ok.json.summary).sort(), ["avg", "busiest", "capacity", "max", "min", "peakAt", "polls", "since", "uptime"]);
+  assert.ok(Array.isArray(ok.json.series) && Array.isArray(ok.json.daily) && Array.isArray(ok.json.heatmap));
+  assert.equal((await c.call("GET", `/api/servers/${id}/stats`)).json.range, "7d"); // default
+  assert.equal((await c.call("GET", `/api/servers/${id}/stats?range=1y`)).status, 400);
+  assert.equal((await c.call("GET", `/api/servers/${id}/stats?tz=garbage`)).status, 200); // bad tz falls back to UTC
+  assert.equal((await c.call("GET", "/api/servers/nope/stats")).status, 404);
+
+  const page = await c.call("GET", `/servers/${id}`);
+  assert.equal(page.status, 200);
+  assert.match(page.text, /Players over time/);
+  assert.equal((await c.call("GET", "/servers/nope")).headers.get("location"), "/");
+
+  assert.equal((await c.call("DELETE", `/api/servers/${id}`)).status, 200);
+  assert.equal((await c.call("GET", `/api/servers/${id}/stats`)).status, 404);
 });
 
 // Keep last: it locks this machine's IP out of /api/login for 15 minutes.
