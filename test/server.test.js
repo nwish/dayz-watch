@@ -258,6 +258,20 @@ test("admin: page and overview API are admin-only and never leak credentials", a
   assert.match(page.text, /Database/);
 });
 
+test("theme.css needs no login (the login page uses it), is served as CSS, and revalidates by ETag", async () => {
+  const first = await fetch(`${base}/theme.css`);
+  assert.equal(first.status, 200);
+  assert.match(first.headers.get("content-type"), /^text\/css/);
+  assert.equal(first.headers.get("cache-control"), "no-cache");
+  const etag = first.headers.get("etag");
+  assert.ok(etag);
+  const same = await fetch(`${base}/theme.css`, { headers: { "if-none-match": etag } });
+  assert.equal(same.status, 304);
+  assert.equal((await same.text()), "");
+  assert.equal((await fetch(`${base}/theme.css`, { headers: { "if-none-match": '"something-else"' } })).status, 200);
+  assert.match(first.headers.get("content-security-policy"), /style-src 'self'/); // the stylesheet is same-origin, so the page may load it
+});
+
 // Keep last: it locks this machine's IP out of /api/login for 15 minutes.
 test("rate limit: one IP guessing many usernames gets locked out too", async () => {
   const c = client();

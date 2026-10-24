@@ -1,4 +1,5 @@
 import http from "node:http";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,6 +25,8 @@ const page = (name) => fs.readFileSync(fileURLToPath(new URL(`../public/${name}`
 const INDEX_HTML = page("index.html");
 const LOGIN_HTML = page("login.html");
 const FAVICON = page("favicon.svg");
+const THEME_CSS = page("theme.css");
+const THEME_ETAG = `"${crypto.createHash("sha1").update(THEME_CSS).digest("hex").slice(0, 16)}"`; // revalidated on every load, so a redeploy is never stale
 const STATS_HTML = page("stats.html");
 const ADMIN_HTML = page("admin.html");
 
@@ -314,13 +317,21 @@ const server = http.createServer(async (req, res) => {
     res.setHeader("referrer-policy", "no-referrer");
     res.setHeader(
       "content-security-policy",
-      "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+      "default-src 'none'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
     );
     const url = new URL(req.url, "http://x");
     const { pathname } = url;
     if (pathname === "/healthz") return reply(res, 200, { ok: true });
     if (req.method === "GET" && pathname === "/favicon.svg") {
       return reply(res, 200, FAVICON, "image/svg+xml", { "cache-control": "public, max-age=86400" });
+    }
+    if (req.method === "GET" && pathname === "/theme.css") {
+      const headers = { etag: THEME_ETAG, "cache-control": "no-cache" };
+      if (req.headers["if-none-match"] === THEME_ETAG) {
+        res.writeHead(304, headers);
+        return res.end();
+      }
+      return reply(res, 200, THEME_CSS, "text/css; charset=utf-8", headers);
     }
     if (req.method !== "GET" && req.method !== "HEAD" && !sameOrigin(req)) {
       return reply(res, 403, { error: "cross-origin request blocked" });
