@@ -5,48 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>dayz-watch – stats</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/theme.css">
 <style>
-  :root {
-    color-scheme: dark;
-    --bg: #0d0f0a; --panel: #161910; --field: #1b1f14; --line: #2f3524; --raise: #262c1c;
-    --fg: #d8d5c2; --dim: #8c8f78; --hl: #a3b86c; --blood: #9b2d24; --blood-hi: #c2392d;
-    --ok: #a3c46a; --err: #e5695b; --warn: #e0a43c;
-    --display: "Bahnschrift", "Arial Narrow", "Roboto Condensed", system-ui, sans-serif;
-  }
-  html {
-    min-height: 100%;
-    background:
-      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .85 0 0 0 0 .85 0 0 0 0 .7 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
-      radial-gradient(ellipse 120% 70% at 50% -10%, #1d2414 0%, var(--bg) 70%) fixed,
-      var(--bg);
-  }
-  body { font: 14px system-ui, sans-serif; color: var(--fg); max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
-  h1, h2, h3 { font-family: var(--display); text-transform: uppercase; letter-spacing: .09em; }
-  h1 { font-size: 1.45rem; margin: 0; display: flex; align-items: center; gap: .6rem; }
-  h1 img { width: 1.9rem; height: 1.9rem; }
+  /* Page-specific styles. The palette, header, controls, tables and stat cards come from /theme.css. */
   h2 { font-size: 1.3rem; margin: 0 0 .2rem; overflow-wrap: anywhere; }
   h3 { font-size: .95rem; margin: 0 0 .6rem; color: var(--dim); }
-  header { display: flex; justify-content: space-between; align-items: center; padding-bottom: .8rem; margin-bottom: 1.2rem; border-bottom: 1px solid var(--line); background: linear-gradient(var(--blood), var(--blood)) left bottom / 4.5rem 3px no-repeat border-box; }
-  .muted { color: var(--dim); }
-  .err { color: var(--err); }
-  button, a.btn { font: inherit; padding: .5rem .8rem; background: var(--field); color: inherit; border: 1px solid var(--line); border-radius: 3px; cursor: pointer; text-decoration: none; display: inline-block; }
-  button:hover, a.btn:hover { border-color: var(--hl); }
   .bar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: 1rem 0; }
   #notice.err { color: var(--err); }
   .bar .spacer { flex: 1; }
   #ranges button[aria-pressed=true] { background: var(--raise); border-color: var(--hl); color: var(--hl); }
   #notice { margin: 0 0 1rem; color: var(--warn); min-height: 1.2em; }
-  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .6rem; margin-bottom: 1.6rem; }
-  .stat { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--hl); border-radius: 3px; padding: .6rem .8rem; }
-  .stat .k { font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); }
-  .stat .v { font-size: 1.7rem; font-weight: 700; line-height: 1.2; margin: .15rem 0; }
+  .cards { margin-bottom: 1.6rem; }
+  .stat .v { font-size: 1.7rem; }
   .stat .v small { font-size: .9rem; color: var(--dim); font-weight: 400; }
-  .stat .s { font-size: .8rem; color: var(--dim); overflow-wrap: anywhere; }
   .stat.bad { border-left-color: var(--err); }
   .stat.bad .v { color: var(--err); }
   .stat.warn { border-left-color: var(--warn); }
   .stat.warn .v { color: var(--warn); }
-  .outs { width: 100%; border-collapse: collapse; }
   .outs th, .outs td { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid var(--line); }
   .outs th { color: var(--dim); font-size: .75rem; font-weight: 500; text-transform: uppercase; letter-spacing: .08em; }
   .outs .live { color: var(--err); font-weight: 600; }
@@ -69,7 +44,6 @@
   .scale { display: flex; align-items: center; gap: .5rem; margin-top: .6rem; font-size: .75rem; color: var(--dim); }
   .scale span.ramp { width: 8rem; height: .5rem; border-radius: 2px; background: linear-gradient(90deg, rgba(163,184,108,.12), rgba(163,184,108,1)); }
   @media (max-width: 640px) {
-    body { margin: 1rem auto; }
     h1 { font-size: 1.2rem; }
     button, a.btn { padding: .65rem .8rem; }
     .stat .v { font-size: 1.4rem; }
