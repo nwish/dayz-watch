@@ -4,23 +4,34 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>dayz-watch – sign in</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>
-  :root { color-scheme: dark; }
-  body { font: 14px system-ui, sans-serif; background: #14161a; color: #e6e6e6; min-height: 100vh; margin: 0; display: flex; align-items: center; justify-content: center; }
-  main { width: min(360px, 90vw); background: #1a1d23; border: 1px solid #333840; border-radius: 12px; padding: 2rem; }
-  h1 { font-size: 1.3rem; margin: 0 0 1.4rem; }
-  label { display: block; color: #9aa0a6; margin: 0 0 .3rem; }
-  input, button { font: inherit; padding: .6rem .7rem; background: #1e2127; color: inherit; border: 1px solid #333840; border-radius: 4px; width: 100%; box-sizing: border-box; }
+  :root { color-scheme: dark; --bg: #0d0f0a; --panel: #161910; --field: #1b1f14; --line: #2f3524; --fg: #d8d5c2; --dim: #8c8f78; --hl: #a3b86c; --blood: #9b2d24; --blood-hi: #c2392d; --err: #e5695b; }
+  html {
+    min-height: 100%;
+    background:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .85 0 0 0 0 .85 0 0 0 0 .7 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
+      radial-gradient(ellipse 120% 70% at 50% -10%, #1d2414 0%, var(--bg) 70%) fixed,
+      var(--bg);
+  }
+  body { font: 14px system-ui, sans-serif; color: var(--fg); min-height: 100vh; margin: 0; display: flex; align-items: center; justify-content: center; }
+  main { width: min(360px, 90vw); background: var(--panel); border: 1px solid var(--line); border-top: 3px solid var(--blood); border-radius: 3px; padding: 2rem; box-shadow: 0 12px 40px #000a; }
+  .logo { display: block; width: 3.6rem; height: 3.6rem; margin: 0 auto .8rem; }
+  h1 { font: 700 1.45rem "Bahnschrift", "Arial Narrow", "Roboto Condensed", system-ui, sans-serif; text-transform: uppercase; letter-spacing: .12em; text-align: center; margin: 0 0 1.6rem; }
+  label { display: block; color: var(--dim); margin: 0 0 .3rem; }
+  input, button { font: inherit; padding: .6rem .7rem; background: var(--field); color: inherit; border: 1px solid var(--line); border-radius: 3px; width: 100%; box-sizing: border-box; }
   input { margin-bottom: 1rem; }
-  input:focus { outline: none; border-color: #5865f2; }
-  button { cursor: pointer; background: #5865f2; border-color: #5865f2; font-weight: 600; }
+  input:focus { outline: none; border-color: var(--hl); box-shadow: 0 0 0 1px var(--hl); }
+  button { cursor: pointer; background: var(--blood); border-color: var(--blood-hi); color: #f3e9e0; font-weight: 600; letter-spacing: .06em; }
+  button:hover { background: var(--blood-hi); }
   button:disabled { opacity: .6; cursor: default; }
-  #err { color: #ff7b72; min-height: 1.3em; margin-top: .8rem; }
+  #err { color: var(--err); min-height: 1.3em; margin-top: .8rem; }
   @media (max-width: 640px) { input { font-size: 16px; } } /* stops iOS zooming on focus */
 </style>
 </head>
 <body>
 <main>
+  <img class="logo" src="/favicon.svg" alt="">
   <h1>dayz-watch</h1>
   <form id="f">
     <label for="u">Username</label>

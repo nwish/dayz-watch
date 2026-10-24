@@ -18,6 +18,7 @@ const COOKIE_NAME = "dw_session";
 const page = (name) => fs.readFileSync(fileURLToPath(new URL(`../public/${name}`, import.meta.url)));
 const INDEX_HTML = page("index.html");
 const LOGIN_HTML = page("login.html");
+const FAVICON = page("favicon.svg");
 
 const FIFTEEN_MIN = 15 * 60e3;
 const store = new Store(DATA_DIR);
@@ -249,11 +250,14 @@ const server = http.createServer(async (req, res) => {
     res.setHeader("referrer-policy", "no-referrer");
     res.setHeader(
       "content-security-policy",
-      "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+      "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
     );
     const url = new URL(req.url, "http://x");
     const { pathname } = url;
     if (pathname === "/healthz") return reply(res, 200, { ok: true });
+    if (req.method === "GET" && pathname === "/favicon.svg") {
+      return reply(res, 200, FAVICON, "image/svg+xml", { "cache-control": "public, max-age=86400" });
+    }
     if (req.method !== "GET" && req.method !== "HEAD" && !sameOrigin(req)) {
       return reply(res, 403, { error: "cross-origin request blocked" });
     }

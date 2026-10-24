@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="12" fill="#12150d"/>
+  <rect x="1.5" y="1.5" width="61" height="61" rx="10.5" fill="none" stroke="#2f3524" stroke-width="3"/>
+  <!-- scope ring with a radar-sweep arc -->
+  <circle cx="32" cy="32" r="19" fill="none" stroke="#d8d5c2" stroke-width="4"/>
+  <path d="M32 32 L32 13 A19 19 0 0 1 48.5 22.5 Z" fill="#a3b86c" opacity=".35"/>
+  <!-- crosshair ticks -->
+  <path d="M32 5v12M32 47v12M5 32h12M47 32h12" stroke="#d8d5c2" stroke-width="4" stroke-linecap="round"/>
+  <!-- contact -->
+  <circle cx="32" cy="32" r="5.5" fill="#c2392d"/>
+</svg>
