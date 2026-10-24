@@ -13,6 +13,8 @@ const PORT = Number(process.env.PORT ?? 8080);
 const DATA_DIR = process.env.DATA_DIR ?? "./data";
 const POLL_MS = Math.max(5, Number(process.env.POLL_SECONDS ?? 30)) * 1000;
 const OFFLINE_AFTER = Math.max(1, Math.floor(Number(process.env.OFFLINE_AFTER)) || 3); // consecutive failed polls before a server counts as offline
+const rebootMinutes = Number(process.env.REBOOT_WINDOW_MINUTES ?? 10);
+const REBOOT_S = (Number.isFinite(rebootMinutes) ? Math.max(0, rebootMinutes) : 10) * 60; // a downtime shorter than this is a normal restart
 const DEFAULT_WEBHOOK = process.env.DISCORD_WEBHOOK_URL || null;
 const directory = new Directory({ url: process.env.DIRECTORY_URL || DEFAULT_DIRECTORY_URL });
 const TRUST_PROXY = process.env.TRUST_PROXY === "true";
@@ -59,6 +61,7 @@ const monitor = new Monitor({
   defaultWebhook: DEFAULT_WEBHOOK,
   pollMs: POLL_MS,
   offlineAfter: OFFLINE_AFTER,
+  rebootWindowMs: REBOOT_S * 1000,
   onSample: (s, sample) => stats.record(s.id, sample),
   onOutage: (s, kind, atMs) => (kind === "start" ? stats.outageStart(s.id, atMs / 1000) : stats.outageEnd(s.id, atMs / 1000)),
 });

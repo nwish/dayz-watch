@@ -17,8 +17,8 @@ export function formatDuration(ms) {
   return `${Math.floor(h / 24)}d ${h % 24}h`;
 }
 
-export function formatOffline(name, address, failures, error) {
-  return `**${name}** (${address}) is **offline**: no answer to ${failures} polls in a row (${error})`;
+export function formatOffline(name, address, downMs, error) {
+  return `**${name}** (${address}) is **offline**: no answer for ${formatDuration(downMs)} (${error})`;
 }
 
 export function formatBackOnline(info, downMs) {
@@ -39,14 +39,17 @@ export class Monitor {
   // query(host, port) -> {name,map,players,maxPlayers}; notify(url, content) -> Promise
   // onSample(server, {players,maxPlayers} | null): called once per finished poll (null = it failed).
   // offlineAfter: consecutive failed polls before a server counts as offline. now(): ms, injectable for tests.
+  // rebootWindowMs: a normal restart takes a few minutes, so Discord is only told about a server that is still
+  // down after this long (0 = tell it as soon as the server counts as offline).
   // onOutage(server, "start" | "end", atMs): an outage began (first failed poll) or ended (first answered poll).
-  constructor({ query, notify = postWebhook, defaultWebhook = null, pollMs = 30_000, onSample = null, onOutage = null, offlineAfter = 3, now = Date.now }) {
+  constructor({ query, notify = postWebhook, defaultWebhook = null, pollMs = 30_000, onSample = null, onOutage = null, offlineAfter = 3, rebootWindowMs = 10 * 60e3, now = Date.now }) {
     this.query = query;
     this.notify = notify;
     this.defaultWebhook = defaultWebhook;
     this.pollMs = pollMs;
     this.onSample = onSample;
     this.offlineAfter = offlineAfter;
+    this.rebootWindowMs = rebootWindowMs;
     this.now = now;
     this.onOutage = onOutage;
     this.state = new Map(); // id -> per-server polling state, see track()
@@ -109,7 +112,7 @@ export class Monitor {
 
   status(id) {
     const st = this.state.get(id);
-    if (!st) return { info: null, error: null, checkedAt: null, state: "unknown", failures: 0, offlineSince: null, lastSeenAt: null };
+    if (!st) return { info: null, error: null, checkedAt: null, state: "unknown", failures: 0, offlineSince: null, lastSeenAt: null, likelyRestart: false };
     const iso = (ms) => (ms == null ? null : new Date(ms).toISOString());
     return {
       info: st.info,
@@ -119,6 +122,8 @@ export class Monitor {
       failures: st.failures,
       offlineSince: iso(st.offlineSince),
       lastSeenAt: iso(st.lastSeenAt),
+      // Offline, but not for long enough yet to be anything other than a normal restart.
+      likelyRestart: st.state === "offline" && this.now() - st.offlineSince < this.rebootWindowMs,
     };
   }
 
@@ -136,17 +141,21 @@ export class Monitor {
       st.failures++;
       st.firstFailureAt ??= this.now();
       this.#sample(server, null);
-      if (st.failures >= this.offlineAfter && st.state !== "offline") {
-        st.state = "offline";
-        st.offlineSince = st.firstFailureAt;
-        this.#outage(server, "start", st.offlineSince);
-        console.log(`${ts()} ${address} offline: ${e.message}`);
-        // Only announce an outage for a server we have actually seen up: a mistyped address
-        // should show as offline in the UI, not ping the channel.
-        if (st.lastSeenAt !== null) {
-          st.offlineNotified = true;
+      if (st.failures >= this.offlineAfter) {
+        if (st.state !== "offline") {
+          st.state = "offline";
+          st.offlineSince = st.firstFailureAt;
           st.lastPlayers = null; // coming back is a fresh baseline, not a "20 -> 0" change
-          await this.#send(server, st, formatOffline(st.info?.name ?? address, address, st.failures, e.message));
+          this.#outage(server, "start", st.offlineSince);
+          console.log(`${ts()} ${address} offline: ${e.message}`);
+        }
+        // Restarts are routine, so only a server still down after the restart window is announced. One we
+        // have never seen up since this process started (a mistyped address) shows as offline in the UI
+        // but never pings the channel.
+        const downMs = this.now() - st.offlineSince;
+        if (!st.offlineNotified && st.lastSeenAt !== null && downMs >= this.rebootWindowMs) {
+          st.offlineNotified = true;
+          await this.#send(server, st, formatOffline(st.info?.name ?? address, address, downMs, e.message));
         }
       }
       return;
@@ -167,6 +176,7 @@ export class Monitor {
     st.lastSeenAt = this.now();
     this.#sample(server, { players: info.players, maxPlayers: info.maxPlayers });
     if (wasOffline) this.#outage(server, "end", this.now());
+    if (wasOffline && !announceBack) console.log(`${ts()} ${address} answering again after ${formatDuration(downMs)}, not announced`);
 
     if (announceBack) {
       st.lastPlayers = info.players;

@@ -176,7 +176,7 @@ test("monitor: reports every finished poll to onSample, and a throwing recorder 
 });
 
 // Fake-clock harness: every tick() first advances 30 s, like a real poll interval.
-function outageHarness({ webhook = "https://default", offlineAfter = 3, notify, onOutage } = {}) {
+function outageHarness({ webhook = "https://default", offlineAfter = 3, rebootWindowMs = 0, notify, onOutage } = {}) {
   let t = 0;
   let next;
   const posts = [];
@@ -188,6 +188,7 @@ function outageHarness({ webhook = "https://default", offlineAfter = 3, notify, 
     notify: notify ?? (async (url, content) => posts.push(content)),
     defaultWebhook: webhook,
     offlineAfter,
+    rebootWindowMs,
     onOutage,
     now: () => t,
   });
@@ -212,7 +213,7 @@ test("monitor: offline only after N consecutive failures, announced once; recove
   assert.equal(status().state, "offline");
   assert.equal(status().offlineSince, new Date(60_000).toISOString()); // first failed poll, not the third
   assert.equal(posts.length, 1);
-  assert.equal(posts[0], "**N** (h:1) is **offline**: no answer to 3 polls in a row (query timeout)");
+  assert.equal(posts[0], "**N** (h:1) is **offline**: no answer for 1m (query timeout)");
   await tick(down());
   await tick(down());
   assert.equal(posts.length, 1); // an ongoing outage doesn't repeat
@@ -306,6 +307,7 @@ test("monitor + stats agree on how long an outage lasted (list, 'offline for', a
     notify: async (url, content) => posts.push(content),
     defaultWebhook: "https://default",
     offlineAfter: 3,
+    rebootWindowMs: 0, // alert at once, so the Discord duration can be compared with the stats one
     now: () => ms,
     onSample: (s, sample) => stats.record(s.id, sample),
     onOutage: (s, kind, at) => (kind === "start" ? stats.outageStart(s.id, at / 1000) : stats.outageEnd(s.id, at / 1000)),
@@ -332,6 +334,38 @@ test("monitor + stats agree on how long an outage lasted (list, 'offline for', a
   assert.equal(done.ongoing, false);
   assert.equal(done.to - done.from, 270);
   assert.match(posts.at(-1), /back online\*\* after 4m/); // formatDuration(270 s)
+});
+
+test("monitor: a restart shorter than the window is silent, and the restarted server is a fresh baseline", async () => {
+  const { posts, tick, status } = outageHarness({ rebootWindowMs: 10 * 60e3 });
+  await tick(info(20));
+  for (let i = 0; i < 4; i++) await tick(down()); // 2 minutes dark
+  assert.deepEqual([status().state, status().likelyRestart], ["offline", true]);
+  await tick(info(0)); // came back empty
+  assert.deepEqual([status().state, status().likelyRestart], ["online", false]);
+  assert.deepEqual(posts, []); // no "offline", no "back online", and no "players 20 -> 0"
+  await tick(info(3));
+  assert.equal(posts.length, 1);
+  assert.match(posts[0], /players 0 → \*\*3\*\*\/60 \(\+3\)/);
+});
+
+test("monitor: only a server still down after the window is announced, once, with how long it has been down", async () => {
+  const { posts, tick, status } = outageHarness({ rebootWindowMs: 10 * 60e3 });
+  await tick(info(20));
+  for (let i = 0; i < 19; i++) await tick(down()); // failures from 60 s to 600 s: dark for 9m00s at the last one
+  assert.deepEqual([posts.length, status().likelyRestart], [0, true]);
+  await tick(down()); // 630 s: dark for 9m30s: still inside the window
+  assert.deepEqual([posts.length, status().likelyRestart], [0, true]);
+  await tick(down()); // 660 s: dark for 10 minutes, no longer just a restart
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0], "**N** (h:1) is **offline**: no answer for 10m (query timeout)");
+  assert.equal(status().likelyRestart, false);
+  await tick(down());
+  await tick(down());
+  assert.equal(posts.length, 1); // not repeated
+  await tick(info(0)); // 750 s: 11m30s after the first failure
+  assert.equal(posts.length, 2);
+  assert.match(posts[1], /back online\*\* after 11m: 0\/60 players/);
 });
 
 test("formatDuration is compact and rounds down to the largest useful unit", () => {

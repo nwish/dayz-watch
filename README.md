@@ -24,6 +24,7 @@ Open `http://<host>:8080` and sign in. Everything else (servers, users) is manag
 | `DISCORD_WEBHOOK_URL` | unset | Default webhook, used by servers added without their own. Optional: with no webhook at all, servers are still monitored in the UI but nothing is posted. |
 | `POLL_SECONDS` | 30 | Poll interval (minimum 5). |
 | `OFFLINE_AFTER` | 3 | Consecutive failed polls before a server counts as offline (see Behaviour). At the default poll interval, 3 is about 90 s. |
+| `REBOOT_WINDOW_MINUTES` | 10 | A server that is down for less than this is treated as a normal restart, not an outage: no Discord message and shown as "restarting?" in the UI. `0` treats every offline server as an outage. |
 | `DIRECTORY_URL` | DZSA Launcher list | JSON list of public servers used by the add-server search (see below). Override only to point at a compatible mirror. |
 | `HOST_PORT` | 8080 | Host port published by compose (the container itself always listens on 8080). |
 
@@ -50,12 +51,13 @@ The container needs outbound UDP to the query ports and outbound HTTPS to Discor
 
 ### Offline servers
 
-A server is **offline** after `OFFLINE_AFTER` failed polls in a row; a single dropped packet is just a blip and shows as `Query failing (1/3)`. When it goes offline:
+A server is **offline** after `OFFLINE_AFTER` failed polls in a row; a single dropped packet is just a blip and shows as `Query failing (1/3)`. Game servers restart on a schedule and are dark for a few minutes each time, so what happens next depends on how long it stays dark (`REBOOT_WINDOW_MINUTES`, default 10):
 
-- The list and overlay show it as offline, with how long and since when, instead of a stale player count. The overlay dims the count and stops alerting.
-- If a webhook is set, one message is posted: `**Name** (host:port) is **offline**: no answer to 3 polls in a row (query timeout)`. It is not repeated while the outage lasts.
-- When it answers again, one message is posted: `**Name** (map) is **back online** after 12m: 5/60 players`. The downtime counts from the first failed poll. The first reading after recovery is a fresh baseline, so a restarted server doesn't also post `players 20 → 0`.
+- **Shorter than the window: a restart.** The list and overlay say `restarting?` (with how long it has been dark) instead of a stale player count, and nothing is posted to Discord. When it answers again the first reading is a fresh baseline, so the restart doesn't post `players 20 → 0` either.
+- **Still dark at the end of the window: an outage.** The display changes to `offline`, and if a webhook is set one message is posted: `**Name** (host:port) is **offline**: no answer for 10m (query timeout)`. It is not repeated while the outage lasts.
+- **Back after an outage:** one message, `**Name** (map) is **back online** after 12m: 5/60 players`. Downtime counts from the first failed poll.
 - A server that has never answered since the app started (a mistyped host or port) shows as offline in the UI but is **not** announced, going or coming, so a typo can't ping your channel. Likewise, if the app restarts while a server is down, that outage isn't announced again.
+- The overlay dims the count and stops sound alerts while a server is dark.
 
 ## Finding servers to add
 
