@@ -323,16 +323,17 @@ test("monitor + stats agree on how long an outage lasted (list, 'offline for', a
   for (let i = 0; i < 3; i++) await tick(down()); // 22:29:00, 22:29:30, 22:30:00: offline, across a window boundary
 
   ms = Date.UTC(2026, 9, 24, 22, 33, 0); // three minutes into the 22:30 window
-  const ongoing = stats.query("s1", "24h").outages.list[0];
+  const ongoing = stats.query("s1", "24h").downtime.intervals.at(-1);
   const offlineSince = Date.parse(m.status("s1").offlineSince);
   assert.deepEqual([ongoing.ongoing, ongoing.from * 1000], [true, offlineSince]);
   assert.equal(ongoing.to * 1000 - ongoing.from * 1000, ms - offlineSince); // "Offline for" and the stats list agree: 4 min, not 5
   assert.equal(ms - offlineSince, 4 * 60_000);
 
   await tick(info(0)); // 22:33:30 answers again
-  const done = stats.query("s1", "24h").outages.list[0];
+  const done = stats.query("s1", "24h").downtime.intervals.at(-1);
   assert.equal(done.ongoing, false);
   assert.equal(done.to - done.from, 270);
+  assert.equal(done.kind, "reboot"); // 4.5 min is under the stats restart window (the monitor above alerts at once only to compare durations)
   assert.match(posts.at(-1), /back online\*\* after 4m/); // formatDuration(270 s)
 });
 

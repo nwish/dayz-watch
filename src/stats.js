@@ -21,8 +21,10 @@ const avg = (sum, ok) => (ok > 0 ? round1(sum / ok) : null);
 
 export class Stats {
   // file: path to the database, or ":memory:". now(): seconds, injectable for tests.
-  constructor(file, { now = () => Date.now() / 1000 } = {}) {
+  // rebootSeconds: a downtime shorter than this is a normal restart, anything longer an outage.
+  constructor(file, { now = () => Date.now() / 1000, rebootSeconds = 600 } = {}) {
     this.file = file;
+    this.rebootSeconds = rebootSeconds;
     this.now = now;
     this.db = new DatabaseSync(file);
     this.db.exec(`
@@ -184,20 +186,45 @@ export class Stats {
     ).map((c) => ({ dow: c.dow, hr: c.hr, avg: avg(c.sum, c.ok) }));
     const busiest = heatmap.reduce((b, c) => (!b || c.avg > b.avg ? c : b), null);
 
-    // Outage intervals come from the monitor's exact timestamps, so they match "Offline for ..." and the
-    // Discord messages. An ongoing one runs to now; durations in the totals are clipped to this range.
+    // Downtime comes from the monitor's exact timestamps, so it matches "Offline for ..." and the Discord
+    // messages, and is classified by length: shorter than the restart window is a normal restart, anything
+    // longer an outage. Classifying on read means changing REBOOT_WINDOW_MINUTES re-sorts the history.
+    // An ongoing interval runs to now (and turns from restart into outage once it outlasts the window).
     const now = Math.floor(this.now());
-    const spans = all("SELECT started, ended FROM outages WHERE server_id = ?1 AND (ended IS NULL OR ended >= ?2) ORDER BY started", serverId, from).map((o) => ({
-      from: o.started,
-      to: o.ended ?? now,
-      ongoing: o.ended === null,
-    }));
-    const clipped = (o) => Math.max(0, o.to - Math.max(o.from, from));
-    const outages = {
-      count: spans.length,
-      totalSeconds: Math.round(spans.reduce((a, o) => a + clipped(o), 0)),
-      longestSeconds: Math.round(spans.reduce((a, o) => Math.max(a, clipped(o)), 0)),
-      list: spans.reverse().slice(0, 20), // newest first
+    const intervals = all("SELECT started, ended FROM outages WHERE server_id = ?1 AND (ended IS NULL OR ended >= ?2) ORDER BY started", serverId, from).map((o) => {
+      const to = o.ended ?? now;
+      return { from: o.started, to, ongoing: o.ended === null, kind: to - o.started < this.rebootSeconds ? "reboot" : "outage" };
+    });
+    const clipped = (i) => Math.max(0, i.to - Math.max(i.from, from)); // totals count only the part inside the range
+    const outs = intervals.filter((i) => i.kind === "outage");
+    const boots = intervals.filter((i) => i.kind === "reboot");
+    // Local hours of day at which restarts usually begin: only hours that recur (at least twice, and at
+    // least half as often as the busiest one) so a one-off doesn't look like a schedule.
+    const perHour = new Map();
+    for (const i of boots) {
+      const hr = Math.floor(((i.from + off) % 86400) / 3600);
+      perHour.set(hr, (perHour.get(hr) ?? 0) + 1);
+    }
+    const topCount = Math.max(0, ...perHour.values());
+    const hours = [...perHour]
+      .filter(([, n]) => n >= Math.max(2, Math.ceil(topCount / 2)))
+      .map(([hr]) => hr)
+      .sort((a, b) => a - b)
+      .slice(0, 8);
+    const downtime = {
+      rebootSeconds: this.rebootSeconds,
+      intervals, // oldest first; { from, to, ongoing, kind: "reboot" | "outage" }
+      outages: {
+        count: outs.length,
+        totalSeconds: Math.round(outs.reduce((a, i) => a + clipped(i), 0)),
+        longestSeconds: Math.round(Math.max(0, ...outs.map(clipped))),
+      },
+      reboots: {
+        count: boots.length,
+        totalSeconds: Math.round(boots.reduce((a, i) => a + clipped(i), 0)),
+        avgSeconds: boots.length ? Math.round(boots.reduce((a, i) => a + i.to - i.from, 0) / boots.length) : 0,
+        hours,
+      },
     };
 
     return {
@@ -213,7 +240,7 @@ export class Stats {
         since: tot.since,
         busiest,
       },
-      series, daily, heatmap, outages,
+      series, daily, heatmap, downtime,
     };
   }
 }

@@ -52,7 +52,7 @@ if (generated) {
   console.log("================================================================");
 }
 
-const stats = new Stats(path.join(DATA_DIR, "stats.db"));
+const stats = new Stats(path.join(DATA_DIR, "stats.db"), { rebootSeconds: REBOOT_S });
 stats.closeOpenOutages(); // an outage left open by the previous run can't be followed while we were down
 stats.prune();
 setInterval(() => stats.prune(), 60 * 60e3).unref(); // keep 90 days

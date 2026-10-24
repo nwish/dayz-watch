@@ -44,6 +44,8 @@
   .stat .s { font-size: .8rem; color: var(--dim); overflow-wrap: anywhere; }
   .stat.bad { border-left-color: var(--err); }
   .stat.bad .v { color: var(--err); }
+  .stat.warn { border-left-color: var(--warn); }
+  .stat.warn .v { color: var(--warn); }
   .outs { width: 100%; border-collapse: collapse; }
   .outs th, .outs td { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid var(--line); }
   .outs th { color: var(--dim); font-size: .75rem; font-weight: 500; text-transform: uppercase; letter-spacing: .08em; }
@@ -103,7 +105,8 @@
   <div class="legend" id="timeline-legend">
     <span><i style="background:var(--hl)"></i>average</span>
     <span><i style="background:rgba(163,184,108,.25)"></i>min&ndash;max in period</span>
-    <span><i style="background:rgba(229,105,91,.45)"></i>server not answering</span>
+    <span><i style="background:rgba(224,164,60,.6)"></i><span id="legend-restart">restart</span></span>
+    <span><i style="background:rgba(229,105,91,.5)"></i>outage</span>
     <span id="res"></span>
   </div>
 </section>
@@ -124,8 +127,13 @@
 </section>
 
 <section id="out-sec">
-  <h3>Outages <span class="muted" style="text-transform:none;letter-spacing:0">(first failed poll until the server answers again)</span></h3>
+  <h3>Outages <span class="muted" id="out-note" style="text-transform:none;letter-spacing:0"></span></h3>
   <div id="outages"></div>
+</section>
+
+<section id="boot-sec">
+  <h3>Restarts <span class="muted" id="boot-note" style="text-transform:none;letter-spacing:0"></span></h3>
+  <div id="reboots"></div>
 </section>
 
 <script>
@@ -188,21 +196,23 @@ function stat(label, value, sub, extra) {
 }
 
 function fmtDur(sec) {
-  if (sec < 3600) return `${Math.max(1, Math.round(sec / 60))} min`;
+  if (sec < 90) return `${Math.round(sec)} s`;
+  if (sec < 3600) return `${Math.round(sec / 60)} min`;
   const h = Math.floor(sec / 3600);
-  return h < 24 ? `${h} h ${Math.round((sec % 3600) / 60)} min` : `${Math.floor(h / 24)} d ${h % 24} h`;
+  return h < 24 ? `${h} h ${Math.floor((sec % 3600) / 60)} min` : `${Math.floor(h / 24)} d ${h % 24} h`;
 }
 
 function renderCards(d) {
-  const { summary: sm, server, outages } = d;
+  const { summary: sm, server, downtime: dt } = d;
   const cur = server.info;
   const offline = server.state === "offline";
   const now = offline
-    ? stat("Now", "Offline", `since ${fmtStamp(Date.parse(server.offlineSince) / 1000)}: ${server.error}`)
+    ? stat("Now", server.likelyRestart ? "Restarting?" : "Offline", `no answer since ${fmtStamp(Date.parse(server.offlineSince) / 1000)}: ${server.error}`)
     : stat("Now", cur ? String(cur.players) : "—", server.failures ? `query failing (${server.failures}): ${server.error}` : server.error ? server.error : cur ? `of ${cur.maxPlayers} slots` : "waiting for first poll", cur ? `/ ${cur.maxPlayers}` : "");
-  if (offline) now.classList.add("bad");
-  const out = stat("Outages", String(outages.count), outages.count ? `${fmtDur(outages.totalSeconds)} down, longest ${fmtDur(outages.longestSeconds)}` : "none in this period");
-  if (outages.list[0]?.ongoing) out.classList.add("bad");
+  if (offline) now.classList.add(server.likelyRestart ? "warn" : "bad");
+  const out = stat("Outages", String(dt.outages.count), dt.outages.count ? `${fmtDur(dt.outages.totalSeconds)} down, longest ${fmtDur(dt.outages.longestSeconds)}` : "none in this period");
+  if (dt.intervals.some((i) => i.ongoing && i.kind === "outage")) out.classList.add("bad");
+  const boots = stat("Restarts", String(dt.reboots.count), dt.reboots.count ? `typically ${fmtDur(dt.reboots.avgSeconds)}` : "none in this period");
   $("cards").replaceChildren(
     now,
     stat("Average", num(sm.avg), sm.capacity && sm.avg != null ? `${Math.round((100 * sm.avg) / sm.capacity)}% of ${sm.capacity} slots` : ""),
@@ -210,21 +220,46 @@ function renderCards(d) {
     stat("Lowest", sm.min == null ? "—" : String(sm.min), ""),
     stat("Answered polls", sm.uptime == null ? "—" : `${num(sm.uptime)}%`, `${sm.polls.toLocaleString()} polls`),
     out,
+    boots,
     stat("Busiest hour", sm.busiest ? `${DOW[sm.busiest.dow]} ${String(sm.busiest.hr).padStart(2, "0")}:00` : "—", sm.busiest ? `avg ${num(sm.busiest.avg)} players` : ""),
   );
 }
 
-function drawOutages(d) {
-  const { outages: o } = d;
-  const box = $("outages");
-  if (!o.list.length) return box.replaceChildren(h("p", { className: "muted", textContent: "No outages in this period." }));
+function downtimeTable(list) {
   const table = h("table", { className: "outs" }, h("thead", {}, h("tr", {}, h("th", { textContent: "Started" }), h("th", { textContent: "Duration" }), h("th", { textContent: "" }))));
   const body = h("tbody");
-  for (const x of o.list) {
-    body.append(h("tr", {}, h("td", { textContent: fmtStamp(x.from) }), h("td", { textContent: fmtDur(x.to - x.from) }), h("td", { className: x.ongoing ? "live" : "muted", textContent: x.ongoing ? "ongoing" : `ended ${fmtStamp(x.to)}` })));
+  for (const x of list) {
+    body.append(h("tr", {}, h("td", { textContent: fmtStamp(x.from) }), h("td", { textContent: fmtDur(x.to - x.from) }), h("td", { className: x.ongoing ? "live" : "muted", textContent: x.ongoing ? "in progress" : `ended ${fmtTime(x.to)}` })));
   }
   table.append(body);
-  box.replaceChildren(table, ...(o.count > o.list.length ? [h("p", { className: "muted", textContent: `Showing the ${o.list.length} most recent of ${o.count}.` })] : []));
+  return table;
+}
+
+function drawDowntime(d) {
+  const dt = d.downtime;
+  const mins = Math.round(dt.rebootSeconds / 60);
+  $("out-note").textContent = mins ? `(dark for ${mins} min or more)` : "(every time the server went dark)";
+  $("boot-note").textContent = `(dark for under ${mins} min: normal restarts)`;
+  $("boot-sec").hidden = mins === 0;
+  $("legend-restart").textContent = mins ? `restart (under ${mins} min)` : "restart";
+
+  const outs = dt.intervals.filter((i) => i.kind === "outage").reverse();
+  $("outages").replaceChildren(
+    ...(outs.length
+      ? [downtimeTable(outs.slice(0, 20)), ...(outs.length > 20 ? [h("p", { className: "muted", textContent: `Showing the 20 most recent of ${outs.length}.` })] : [])]
+      : [h("p", { className: "muted", textContent: "No outages in this period." })]),
+  );
+
+  const boots = dt.intervals.filter((i) => i.kind === "reboot").reverse();
+  const r = dt.reboots;
+  const hours = r.hours.map((hr) => `${String(hr).padStart(2, "0")}:00`).join(", ");
+  const summary = r.count
+    ? `${r.count} restart${r.count === 1 ? "" : "s"} in this period, typically ${fmtDur(r.avgSeconds)}.${hours ? ` They usually begin around ${hours} (${Intl.DateTimeFormat().resolvedOptions().timeZone}).` : ""}`
+    : "No restarts recorded in this period.";
+  $("reboots").replaceChildren(
+    h("p", { className: "muted", textContent: summary }),
+    ...(boots.length ? [downtimeTable(boots.slice(0, 10)), ...(boots.length > 10 ? [h("p", { className: "muted", textContent: `Showing the 10 most recent of ${boots.length}.` })] : [])] : []),
+  );
 }
 
 // ---- Timeline ----
@@ -256,8 +291,12 @@ function drawTimeline(d) {
   svg.append(axis);
 
   const w = Math.max(2, x(d.from + d.step) - x(d.from));
-  for (const p of pts) {
-    if (p.avg == null) svg.append(s("rect", { x: x(p.t), y: m.t, width: w, height: ph, fill: "var(--err)", opacity: ".3" }));
+  // Downtime from the monitor's own timestamps: amber for a normal restart, red for an outage.
+  for (const i of d.downtime.intervals) {
+    const x0 = Math.max(m.l, x(i.from));
+    const x1 = Math.min(W - m.r, x(i.to));
+    if (x1 < x0) continue;
+    svg.append(s("rect", { x: x0, y: m.t, width: Math.max(2, x1 - x0), height: ph, fill: i.kind === "outage" ? "var(--err)" : "var(--warn)", opacity: i.kind === "outage" ? ".3" : ".4" }));
   }
 
   // Contiguous runs of answered periods: a gap in the data (container down) breaks the line.
@@ -418,7 +457,7 @@ function render(d) {
   drawTimeline(d);
   drawDaily(d);
   drawHeat(d);
-  drawOutages(d);
+  drawDowntime(d);
 }
 
 async function load() {

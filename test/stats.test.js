@@ -5,9 +5,9 @@ import { Stats, RETENTION_S } from "../src/stats.js";
 const T0 = Date.UTC(2026, 9, 24, 12, 0, 0) / 1000; // a Saturday, 12:00 UTC
 const up = (players, maxPlayers = 60) => ({ players, maxPlayers });
 
-function harness() {
+function harness(opts = {}) {
   let t = T0;
-  const s = new Stats(":memory:", { now: () => t });
+  const s = new Stats(":memory:", { now: () => t, ...opts });
   return { s, at: (sec) => (t = sec) };
 }
 
@@ -137,31 +137,52 @@ test("dbStats reports totals, per-server coverage and page/file sizes", async ()
   assert.deepEqual(mem.files, { db: null, wal: null, shm: null });
 });
 
-test("outages keep the monitor's exact times: ongoing runs to now, newest first, totals clipped to the range", () => {
-  const { s } = harness();
+test("downtime keeps the monitor's exact times, splits restarts from outages by length, and clips totals to the range", () => {
+  const { s, at } = harness({ rebootSeconds: 300 });
   s.outageStart("a", T0 - 5 * 86400); // finished long before the 24 h window
   s.outageEnd("a", T0 - 5 * 86400 + 60);
   s.outageStart("a", T0 - 7200 + 17); // not aligned to a 5-minute window on purpose
   s.outageEnd("a", T0 - 7200 + 17 + 600);
   s.outageStart("a", T0 - 100);
   s.outageStart("a", T0 - 50); // already open: ignored, the outage keeps its real start
-  assert.deepEqual(s.query("a", "24h").outages, {
-    count: 2,
-    totalSeconds: 700,
-    longestSeconds: 600,
-    list: [
-      { from: T0 - 100, to: T0, ongoing: true },
-      { from: T0 - 7200 + 17, to: T0 - 7200 + 17 + 600, ongoing: false },
-    ],
-  });
+  const d = s.query("a", "24h").downtime;
+  assert.deepEqual(d.intervals, [
+    { from: T0 - 7200 + 17, to: T0 - 7200 + 17 + 600, ongoing: false, kind: "outage" }, // 10 min >= 5 min window
+    { from: T0 - 100, to: T0, ongoing: true, kind: "reboot" }, // dark for 100 s so far: could still be a restart
+  ]);
+  assert.deepEqual(d.outages, { count: 1, totalSeconds: 600, longestSeconds: 600 });
+  assert.deepEqual(d.reboots, { count: 1, totalSeconds: 100, avgSeconds: 100, hours: [] }); // one restart is not a schedule
+  assert.equal(s.query("a", "7d").downtime.intervals.length, 3);
 
   s.outageStart("b", T0 - 90000); // began 25 h ago, ended 1 h ago: listed with its real start, counted only from the window start
   s.outageEnd("b", T0 - 3600);
-  assert.equal(s.query("a", "24h").outages.count, 2);
-  assert.equal(s.query("a", "7d").outages.count, 3);
-  const b = s.query("b", "24h").outages;
-  assert.deepEqual([b.count, b.list[0].from, b.totalSeconds], [1, T0 - 90000, 82500]);
-  assert.deepEqual(s.query("zzz", "24h").outages, { count: 0, totalSeconds: 0, longestSeconds: 0, list: [] });
+  const b = s.query("b", "24h").downtime;
+  assert.deepEqual([b.intervals[0].from, b.outages.count, b.outages.totalSeconds], [T0 - 90000, 1, 82500]);
+
+  at(T0 + 300); // the ongoing one has now outlasted the window: it was an outage after all
+  assert.equal(s.query("a", "24h").downtime.intervals.at(-1).kind, "outage");
+  assert.deepEqual(s.query("zzz", "24h").downtime, {
+    rebootSeconds: 300,
+    intervals: [],
+    outages: { count: 0, totalSeconds: 0, longestSeconds: 0 },
+    reboots: { count: 0, totalSeconds: 0, avgSeconds: 0, hours: [] },
+  });
+});
+
+test("recurring restarts are summarised as the local hours they usually begin; a one-off is not a schedule", () => {
+  const { s } = harness();
+  const at = (d, h, m = 0) => Date.UTC(2026, 9, d, h, m) / 1000;
+  for (const start of [at(21, 22), at(22, 22), at(23, 22), at(24, 10, 5)]) {
+    s.outageStart("a", start);
+    s.outageEnd("a", start + 200); // three and a bit minutes: a restart
+  }
+  s.outageStart("a", at(22, 3));
+  s.outageEnd("a", at(22, 3) + 7200); // two hours: an outage, so not part of the restart pattern
+  const r = (tz) => s.query("a", "7d", tz).downtime.reboots;
+  assert.deepEqual([r(0).count, r(0).avgSeconds, r(0).hours], [4, 200, [22]]);
+  assert.deepEqual(r(120).hours, [0]); // UTC+2: 22:00 UTC is midnight
+  assert.deepEqual(r(-420).hours, [15]); // UTC-7
+  assert.equal(s.query("a", "7d").downtime.outages.count, 1);
 });
 
 test("closeOpenOutages ends an outage left open by a previous run at the last moment we were watching", () => {
@@ -171,13 +192,13 @@ test("closeOpenOutages ends an outage left open by a previous run at the last mo
   s.outageStart("noSamples", T0 - 60);
   at(T0 + 3600); // the app was down for an hour
   s.closeOpenOutages();
-  const a = s.query("a", "24h").outages.list[0];
+  const a = s.query("a", "24h").downtime.intervals[0];
   assert.deepEqual([a.from, a.to, a.ongoing], [T0 - 60, T0 + 300, false]); // not "still going for an hour"
-  const n = s.query("noSamples", "24h").outages.list[0];
+  const n = s.query("noSamples", "24h").downtime.intervals[0];
   assert.deepEqual([n.from, n.to, n.ongoing], [T0 - 60, T0 - 60, false]);
 });
 
-test("outages are deleted with their server, and pruning keeps open ones", () => {
+test("downtime is deleted with its server, and pruning keeps open outages", () => {
   const { s, at } = harness();
   s.outageStart("a", T0 - RETENTION_S - 7200);
   s.outageEnd("a", T0 - RETENTION_S - 3600); // ended before the retention cutoff
@@ -186,7 +207,7 @@ test("outages are deleted with their server, and pruning keeps open ones", () =>
   s.outageEnd("b", T0 - 300);
   s.prune();
   at(T0);
-  assert.equal(s.query("a", "90d").outages.count, 1);
+  assert.equal(s.query("a", "90d").downtime.intervals.length, 1);
   s.remove("b");
-  assert.equal(s.query("b", "90d").outages.count, 0);
+  assert.equal(s.query("b", "90d").downtime.intervals.length, 0);
 });
