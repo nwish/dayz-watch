@@ -30,6 +30,12 @@ The container needs outbound UDP to the query ports and outbound HTTPS to Discor
 - A post is sent only when the count differs from the previous successful reading, e.g. `**Name** (map): players 5 → **6**/60 (+1)`.
 - A failed query (timeout, DNS) is shown in the UI and is not treated as a change. A server restart shows as a drop to 0 and a climb back.
 
+## Server overlay
+
+Click a server row to open a large overlay with the live player count plus basic info (address, game port, map, version, platform, in-game time, BattlEye, third person, password). While it is open, any change in player count plays a three-beat alert (rising tones for joins, falling for leaves), flashes the window green or red, and shows `+N joined` / `−N left` with the time. The `Sound` button mutes the beep; Esc, the × button, or a click outside closes it.
+
+Browsers only allow audio after a user gesture, so sound is enabled by the click that opens the overlay. The overlay sees changes as fast as the server is polled (`POLL_SECONDS`), so a 30 s poll means up to 30 s before an alert.
+
 ## Development
 
 ```sh

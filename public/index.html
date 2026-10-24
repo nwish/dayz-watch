@@ -21,6 +21,31 @@
   button:hover { border-color: #5865f2; }
   #msg { grid-column: 1 / -1; min-height: 1.2em; }
   #warn { color: #f0b429; }
+  tr.clickable { cursor: pointer; }
+  tr.clickable:hover { background: #1b1e24; }
+  #overlay { position: fixed; inset: 0; background: rgba(0,0,0,.78); display: flex; align-items: center; justify-content: center; z-index: 10; }
+  #overlay[hidden] { display: none; }
+  .card { position: relative; width: min(680px, 92vw); max-height: 92vh; overflow: auto; background: #1a1d23; border: 1px solid #333840; border-radius: 12px; padding: 2rem 2.2rem; }
+  .card h2 { margin: 0 2rem .5rem 0; font-size: 1.15rem; font-weight: 600; color: #c9d1d9; }
+  .close { position: absolute; top: .8rem; right: .8rem; width: 2.2rem; height: 2.2rem; padding: 0; font-size: 1.4rem; line-height: 1; }
+  #ov-count { font-weight: 700; line-height: 1; margin: .4rem 0; display: inline-block; }
+  #ov-players { font-size: 8rem; }
+  #ov-max { font-size: 2.6rem; color: #9aa0a6; margin-left: .6rem; }
+  .delta { font-size: 1.4rem; font-weight: 600; min-height: 1.8rem; margin-bottom: 1rem; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: .4rem 1.4rem; margin: 0 0 1.2rem; }
+  dt { color: #9aa0a6; }
+  dd { margin: 0; }
+  .foot { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+  .flash-up { animation: flash-up .5s ease-in-out 5; }
+  .flash-down { animation: flash-down .5s ease-in-out 5; }
+  #ov-count.pop { animation: pop .6s ease-out; }
+  @keyframes flash-up {
+    50% { background: #1f5c32; border-color: #3fb950; box-shadow: 0 0 0 10px rgba(63,185,80,.55), 0 0 90px 20px rgba(63,185,80,.7); }
+  }
+  @keyframes flash-down {
+    50% { background: #5c1f1f; border-color: #f85149; box-shadow: 0 0 0 10px rgba(248,81,73,.55), 0 0 90px 20px rgba(248,81,73,.7); }
+  }
+  @keyframes pop { 30% { transform: scale(1.25); } }
 </style>
 </head>
 <body>
@@ -40,9 +65,24 @@
   <span id="msg"></span>
 </form>
 
+<div id="overlay" hidden>
+  <div id="card" class="card" role="dialog" aria-modal="true" aria-labelledby="ov-name">
+    <button id="ov-close" class="close" aria-label="Close">×</button>
+    <h2 id="ov-name"></h2>
+    <div id="ov-count"><span id="ov-players">—</span><span id="ov-max"></span></div>
+    <div id="ov-delta" class="delta"></div>
+    <dl id="ov-info"></dl>
+    <div class="foot"><span id="ov-status" class="muted"></span><button id="ov-mute">Sound: on</button></div>
+  </div>
+</div>
+
 <script>
 const rows = document.getElementById("rows");
 const msg = document.getElementById("msg");
+let openId = null;
+let lastPlayers = null;
+let muted = false;
+let audioCtx = null;
 
 function cell(tr, text, cls) {
   const td = tr.insertCell();
@@ -68,6 +108,8 @@ async function load() {
   }
   for (const s of data.servers) {
     const tr = rows.insertRow();
+    tr.className = "clickable";
+    tr.onclick = () => openOverlay(s);
     cell(tr, s.info?.name ?? "—");
     cell(tr, `${s.host}:${s.queryPort}`);
     cell(tr, s.info?.map ?? "—");
@@ -77,14 +119,129 @@ async function load() {
     const td = tr.insertCell();
     const btn = document.createElement("button");
     btn.textContent = "Remove";
-    btn.onclick = async () => {
+    btn.onclick = async (ev) => {
+      ev.stopPropagation(); // don't open the overlay
       if (!confirm(`Remove ${s.host}:${s.queryPort}?`)) return;
       await fetch(`/api/servers/${s.id}`, { method: "DELETE" });
       load();
     };
     td.append(btn);
   }
+  refreshOverlay(data.servers);
 }
+
+// ---- Server detail overlay ----
+const overlay = document.getElementById("overlay");
+const card = document.getElementById("card");
+const ovCount = document.getElementById("ov-count");
+
+function openOverlay(s) {
+  // Created inside the click handler so the browser allows audio playback later.
+  audioCtx ??= new AudioContext();
+  audioCtx.resume();
+  openId = s.id;
+  lastPlayers = s.info?.players ?? null;
+  document.getElementById("ov-delta").textContent = "";
+  card.classList.remove("flash-up", "flash-down");
+  overlay.hidden = false;
+  renderOverlay(s);
+}
+
+function closeOverlay() {
+  openId = null;
+  overlay.hidden = true;
+}
+
+function renderOverlay(s) {
+  const i = s.info;
+  document.getElementById("ov-name").textContent = i?.name ?? `${s.host}:${s.queryPort}`;
+  document.getElementById("ov-players").textContent = i ? i.players : "—";
+  document.getElementById("ov-max").textContent = i ? `/ ${i.maxPlayers}` : "";
+  const yn = (v) => (v ? "Yes" : "No");
+  const facts = [
+    ["Address", `${s.host}:${s.queryPort}`],
+    ["Game port", i?.gamePort ?? "—"],
+    ["Map", i?.map ?? "—"],
+    ["Version", i?.version ?? "—"],
+    ["Platform", i?.platform ?? "—"],
+    ["In-game time", i?.gameTime ?? "—"],
+    ["BattlEye", i ? yn(i.battleye) : "—"],
+    ["Third person", i ? yn(i.thirdPerson) : "—"],
+    ["Password", i ? yn(i.passwordProtected) : "—"],
+  ];
+  const dl = document.getElementById("ov-info");
+  dl.replaceChildren();
+  for (const [k, v] of facts) {
+    const dt = document.createElement("dt");
+    dt.textContent = k;
+    const dd = document.createElement("dd");
+    dd.textContent = v;
+    dl.append(dt, dd);
+  }
+  const st = document.getElementById("ov-status");
+  st.textContent = s.error ? s.error : `Last checked ${ago(s.checkedAt)}`;
+  st.className = s.error ? "err" : "muted";
+}
+
+function refreshOverlay(servers) {
+  if (!openId) return;
+  const s = servers.find((x) => x.id === openId);
+  if (!s) return closeOverlay(); // removed elsewhere
+  renderOverlay(s);
+  if (!s.info) return;
+  if (lastPlayers !== null && s.info.players !== lastPlayers) alertChange(s.info.players - lastPlayers);
+  lastPlayers = s.info.players;
+}
+
+function alertChange(delta) {
+  const up = delta > 0;
+  const n = Math.abs(delta);
+  const el = document.getElementById("ov-delta");
+  el.textContent = `${up ? "+" : "−"}${n} ${up ? "joined" : "left"} at ${new Date().toLocaleTimeString()}`;
+  el.className = `delta ${up ? "ok" : "err"}`;
+  // Restart the CSS animations even if a previous flash is still running.
+  card.classList.remove("flash-up", "flash-down");
+  ovCount.classList.remove("pop");
+  void card.offsetWidth;
+  card.classList.add(up ? "flash-up" : "flash-down");
+  ovCount.classList.add("pop");
+  beep(up);
+}
+
+function beep(up) {
+  if (muted || !audioCtx) return;
+  // Rising two-tone for a join, falling for a leave; three repeats so it's hard to miss.
+  const [a, b] = up ? [660, 990] : [880, 440];
+  const t0 = audioCtx.currentTime;
+  for (let k = 0; k < 3; k++) {
+    [a, b].forEach((freq, j) => {
+      const t = t0 + k * 0.5 + j * 0.2;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.35, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(t);
+      osc.stop(t + 0.2);
+    });
+  }
+}
+
+document.getElementById("ov-close").onclick = closeOverlay;
+overlay.addEventListener("click", (e) => {
+  if (e.target === overlay) closeOverlay();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && openId) closeOverlay();
+});
+document.getElementById("ov-mute").onclick = (e) => {
+  muted = !muted;
+  e.target.textContent = muted ? "Sound: off" : "Sound: on";
+  if (!muted) beep(true); // audible confirmation
+};
 
 document.getElementById("add").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -103,7 +260,7 @@ document.getElementById("add").addEventListener("submit", async (e) => {
 });
 
 load();
-setInterval(load, 5000);
+setInterval(load, 3000);
 </script>
 </body>
 </html>

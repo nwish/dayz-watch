@@ -11,16 +11,21 @@ import { Store, validateServerInput } from "../src/store.js";
 const cs = (s) => Buffer.from(`${s}\0`);
 
 // Fake A2S server that demands a challenge before answering, like real DayZ servers.
+const KEYWORDS = "battleye,no3rd,shard000,lqs0,etm3.290000,entm3.290000,isDLC4,06:07";
 function fakeA2S(getPlayers) {
   return new Promise((resolve) => {
     const udp = dgram.createSocket("udp4");
     udp.on("message", (m, r) => {
       if (m.length === 25) return udp.send(Buffer.from([0xff, 0xff, 0xff, 0xff, 0x41, 1, 2, 3, 4]), r.port, r.address);
       assert.deepEqual([...m.subarray(25)], [1, 2, 3, 4]);
+      const port = Buffer.alloc(2);
+      port.writeUInt16LE(11300);
       const body = Buffer.concat([
         Buffer.from([0xff, 0xff, 0xff, 0xff, 0x49, 17]),
         cs("TestSrv"), cs("nasdara"), cs("dayz"), cs("game"),
-        Buffer.from([0, 0, getPlayers(), 60, 0]),
+        Buffer.from([0, 0, getPlayers(), 60, 0, 0x64, 0x77, 0, 0]), // appid, players, max, bots, dedicated, windows, public, no VAC
+        cs("1.30.164200"),
+        Buffer.from([0xa0]), port, cs(KEYWORDS), // EDF: game port + keywords
       ]);
       udp.send(body, r.port, r.address);
     });
@@ -28,11 +33,23 @@ function fakeA2S(getPlayers) {
   });
 }
 
-test("queryInfo completes challenge handshake and parses info", async () => {
+test("queryInfo completes challenge handshake and parses info and DayZ keyword flags", async () => {
   const udp = await fakeA2S(() => 7);
   try {
     const info = await queryInfo("127.0.0.1", udp.address().port);
-    assert.deepEqual(info, { name: "TestSrv", map: "nasdara", players: 7, maxPlayers: 60 });
+    assert.deepEqual(info, {
+      name: "TestSrv",
+      map: "nasdara",
+      players: 7,
+      maxPlayers: 60,
+      version: "1.30.164200",
+      platform: "Windows",
+      passwordProtected: false,
+      gamePort: 11300,
+      battleye: true,
+      thirdPerson: false,
+      gameTime: "06:07",
+    });
   } finally {
     udp.close();
   }

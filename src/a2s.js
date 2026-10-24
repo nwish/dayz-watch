@@ -21,25 +21,76 @@ function send(host, port, payload, timeoutMs) {
   });
 }
 
-function cstr(buf, off) {
-  const end = buf.indexOf(0, off);
-  if (end < 0) throw new Error("malformed A2S response");
-  return [buf.toString("utf8", off, end), end + 1];
-}
+const PLATFORMS = { w: "Windows", l: "Linux", m: "Mac" };
 
 export function parseInfo(res) {
   if (res.length < 7 || res[4] !== 0x49) {
     throw new Error(`unexpected A2S response (header 0x${(res[4] ?? 0).toString(16)})`);
   }
   let o = 6; // 4-byte split marker + header byte + protocol byte
-  let name, map;
-  [name, o] = cstr(res, o);
-  [map, o] = cstr(res, o);
-  [, o] = cstr(res, o); // folder
-  [, o] = cstr(res, o); // game
-  o += 2; // app id
-  if (o + 2 > res.length) throw new Error("malformed A2S response");
-  return { name, map, players: res[o], maxPlayers: res[o + 1] };
+  const malformed = () => new Error("malformed A2S response");
+  const u8 = () => {
+    if (o >= res.length) throw malformed();
+    return res[o++];
+  };
+  const u16 = () => {
+    if (o + 2 > res.length) throw malformed();
+    o += 2;
+    return res.readUInt16LE(o - 2);
+  };
+  const str = () => {
+    const end = res.indexOf(0, o);
+    if (end < 0) throw malformed();
+    const s = res.toString("utf8", o, end);
+    o = end + 1;
+    return s;
+  };
+
+  const name = str();
+  const map = str();
+  str(); // folder
+  str(); // game
+  u16(); // app id
+  const players = u8();
+  const maxPlayers = u8();
+  u8(); // bots
+  u8(); // server type
+  const platform = String.fromCharCode(u8());
+  const visibility = u8();
+  u8(); // VAC
+  const version = str();
+
+  let gamePort = null;
+  let keywords = "";
+  if (o < res.length) {
+    const edf = u8(); // optional extra-data flags
+    if (edf & 0x80) gamePort = u16();
+    if (edf & 0x10) {
+      if (o + 8 > res.length) throw malformed();
+      o += 8; // server steam id
+    }
+    if (edf & 0x40) {
+      u16(); // spectator port
+      str(); // spectator name
+    }
+    if (edf & 0x20) keywords = str();
+  }
+
+  // DayZ packs its server flags into the keywords string, e.g. "battleye,no3rd,...,06:07".
+  const kw = keywords.split(",");
+  return {
+    name,
+    map,
+    players,
+    maxPlayers,
+    version,
+    platform: PLATFORMS[platform] ?? platform,
+    passwordProtected: visibility === 1,
+    gamePort,
+    battleye: kw.includes("battleye"),
+    thirdPerson: !kw.includes("no3rd"),
+    gameTime: kw.find((k) => /^\d{2}:\d{2}$/.test(k)) ?? null,
+  };
 }
 
 export async function queryInfo(host, port, { timeoutMs = 3000 } = {}) {
