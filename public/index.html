@@ -14,9 +14,17 @@
   .err { color: #ff7b72; }
   .ok { color: #7ee787; }
   .muted { color: #9aa0a6; }
-  form { display: grid; grid-template-columns: 2fr 1fr; gap: .6rem; }
-  form input[name=webhookUrl] { grid-column: 1 / -1; }
-  input, button { font: inherit; padding: .5rem .6rem; background: #1e2127; color: inherit; border: 1px solid #333840; border-radius: 4px; }
+  #add { display: grid; grid-template-columns: 2fr 1fr; gap: .6rem; }
+  #add input[name=webhookUrl] { grid-column: 1 / -1; }
+  input, button, select { font: inherit; padding: .5rem .6rem; background: #1e2127; color: inherit; border: 1px solid #333840; border-radius: 4px; }
+  button:disabled { opacity: .5; cursor: default; }
+  button:disabled:hover { border-color: #333840; }
+  header { display: flex; justify-content: space-between; align-items: center; }
+  nav { display: flex; gap: .6rem; align-items: center; }
+  section { margin-top: 2rem; }
+  section h2 { font-size: 1.05rem; }
+  .inline { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
+  td button { margin-right: .4rem; }
   button { cursor: pointer; }
   button:hover { border-color: #5865f2; }
   #msg { grid-column: 1 / -1; min-height: 1.2em; }
@@ -58,8 +66,15 @@
 </style>
 </head>
 <body>
-<h1>dayz-watch</h1>
-<p id="warn"></p>
+<header>
+  <h1>dayz-watch</h1>
+  <nav>
+    <span id="who" class="muted"></span>
+    <button id="users-btn" hidden>Users</button>
+    <button id="acct-btn">Account</button>
+    <button id="logout">Log out</button>
+  </nav>
+</header>
 <table>
   <thead><tr><th>Server</th><th>Address</th><th>Map</th><th>Players</th><th>Status</th><th></th></tr></thead>
   <tbody id="rows"><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
@@ -73,6 +88,33 @@
   <button type="submit">Add</button>
   <span id="msg"></span>
 </form>
+
+<section id="panel-account" hidden>
+  <h2>Account</h2>
+  <form id="pw-form" class="inline">
+    <input name="username" autocomplete="username" hidden>
+    <input name="currentPassword" type="password" placeholder="Current password" autocomplete="current-password" required>
+    <input name="newPassword" type="password" placeholder="New password (10-128 characters)" autocomplete="new-password" minlength="10" maxlength="128" required>
+    <input name="confirm" type="password" placeholder="Confirm new password" autocomplete="new-password" required>
+    <button type="submit">Change password</button>
+    <span id="pw-msg"></span>
+  </form>
+</section>
+
+<section id="panel-users" hidden>
+  <h2>Users</h2>
+  <table>
+    <thead><tr><th>Username</th><th>Role</th><th>Last login</th><th></th></tr></thead>
+    <tbody id="user-rows"></tbody>
+  </table>
+  <form id="user-add" class="inline">
+    <input name="username" placeholder="Username" autocomplete="off" autocapitalize="none" required>
+    <input name="password" type="password" placeholder="Password (10-128 characters)" autocomplete="new-password" minlength="10" maxlength="128" required>
+    <select name="role"><option value="user">user</option><option value="admin">admin</option></select>
+    <button type="submit">Add user</button>
+    <span id="users-msg"></span>
+  </form>
+</section>
 
 <div id="overlay" hidden>
   <div id="card" class="card" role="dialog" aria-modal="true" aria-labelledby="ov-name">
@@ -106,9 +148,22 @@ function ago(iso) {
   return s < 60 ? `${s}s ago` : `${Math.round(s / 60)}m ago`;
 }
 
+// fetch wrapper: JSON in/out, and a lost session (401) sends the user to the login page.
+async function api(path, { method = "GET", body } = {}) {
+  const r = await fetch(path, {
+    method,
+    headers: body ? { "content-type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (r.status === 401) {
+    location.replace("/login");
+    throw new Error("signed out");
+  }
+  return { ok: r.ok, status: r.status, data: await r.json().catch(() => ({})) };
+}
+
 async function load() {
-  const r = await fetch("/api/servers");
-  const data = await r.json();
+  const { data } = await api("/api/servers");
   rows.replaceChildren();
   if (!data.servers.length) {
     const tr = rows.insertRow();
@@ -131,7 +186,7 @@ async function load() {
     btn.onclick = async (ev) => {
       ev.stopPropagation(); // don't open the overlay
       if (!confirm(`Remove ${s.host}:${s.queryPort}?`)) return;
-      await fetch(`/api/servers/${s.id}`, { method: "DELETE" });
+      await api(`/api/servers/${s.id}`, { method: "DELETE" });
       load();
     };
     td.append(btn);
@@ -406,21 +461,103 @@ document.getElementById("ov-mute").onclick = (e) => {
 document.getElementById("add").addEventListener("submit", async (e) => {
   e.preventDefault();
   const f = e.target;
-  const body = { host: f.host.value, queryPort: f.queryPort.value, webhookUrl: f.webhookUrl.value };
-  const r = await fetch("/api/servers", {
+  const { ok, data } = await api("/api/servers", {
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
+    body: { host: f.host.value, queryPort: f.queryPort.value, webhookUrl: f.webhookUrl.value },
   });
-  const data = await r.json();
-  msg.textContent = r.ok ? "Added." : data.error;
-  msg.className = r.ok ? "ok" : "err";
-  if (r.ok) f.reset();
+  msg.textContent = ok ? "Added." : data.error;
+  msg.className = ok ? "ok" : "err";
+  if (ok) f.reset();
   load();
 });
 
-load();
-setInterval(load, 3000);
+// ---- Session, account and user management ----
+const $ = (id) => document.getElementById(id);
+let me = null;
+
+function setMsg(id, text, ok) {
+  $(id).textContent = text;
+  $(id).className = ok ? "ok" : "err";
+}
+
+function togglePanel(id) {
+  for (const p of ["panel-account", "panel-users"]) $(p).hidden = p !== id || !$(p).hidden;
+  if (id === "panel-users" && !$(id).hidden) loadUsers();
+}
+
+$("acct-btn").onclick = () => togglePanel("panel-account");
+$("users-btn").onclick = () => togglePanel("panel-users");
+$("logout").onclick = async () => {
+  await api("/api/logout", { method: "POST" });
+  location.replace("/login");
+};
+
+$("pw-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  if (f.newPassword.value !== f.confirm.value) return setMsg("pw-msg", "New passwords don't match.", false);
+  const { ok, data } = await api("/api/me/password", {
+    method: "POST",
+    body: { currentPassword: f.currentPassword.value, newPassword: f.newPassword.value },
+  });
+  setMsg("pw-msg", ok ? "Password changed. Your other sessions were signed out." : data.error, ok);
+  if (ok) f.reset();
+});
+
+async function loadUsers() {
+  const { ok, data } = await api("/api/users");
+  if (!ok) return setMsg("users-msg", data.error, false);
+  const tb = $("user-rows");
+  tb.replaceChildren();
+  for (const u of data.users) {
+    const self = u.username === me.username;
+    const tr = tb.insertRow();
+    cell(tr, self ? `${u.username} (you)` : u.username);
+    cell(tr, u.role);
+    cell(tr, u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : "never", "muted");
+    const td = tr.insertCell();
+    const action = (label, fn) => {
+      const b = document.createElement("button");
+      b.textContent = label;
+      b.disabled = self; // your own account is managed under Account
+      b.onclick = async () => {
+        const res = await fn();
+        if (!res) return;
+        setMsg("users-msg", res.ok ? "Done." : res.data.error, res.ok);
+        loadUsers();
+      };
+      td.append(b);
+    };
+    const patch = (body) => api(`/api/users/${u.username}`, { method: "PATCH", body });
+    action(u.role === "admin" ? "Make user" : "Make admin", () => patch({ role: u.role === "admin" ? "user" : "admin" }));
+    action("Reset password", () => {
+      const password = prompt(`New password for ${u.username} (10-128 characters):`);
+      return password ? patch({ password }) : null;
+    });
+    action("Delete", () => (confirm(`Delete user ${u.username}?`) ? api(`/api/users/${u.username}`, { method: "DELETE" }) : null));
+  }
+}
+
+$("user-add").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const { ok, data } = await api("/api/users", {
+    method: "POST",
+    body: { username: f.username.value, password: f.password.value, role: f.role.value },
+  });
+  setMsg("users-msg", ok ? `Created ${data.username}.` : data.error, ok);
+  if (ok) f.reset();
+  loadUsers();
+});
+
+(async () => {
+  me = (await api("/api/me")).data;
+  $("who").textContent = `${me.username} (${me.role})`;
+  $("pw-form").username.value = me.username; // lets password managers update the right entry
+  $("users-btn").hidden = me.role !== "admin";
+  load();
+  setInterval(load, 3000);
+})();
 </script>
 </body>
 </html>

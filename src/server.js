@@ -1,33 +1,123 @@
 import http from "node:http";
 import fs from "node:fs";
-import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { queryInfo } from "./a2s.js";
 import { Store } from "./store.js";
 import { Monitor } from "./monitor.js";
+import { AuthError, FailureLimiter, SessionStore, UserStore, bootstrapAdmin, validatePassword } from "./auth.js";
 
 const PORT = Number(process.env.PORT ?? 8080);
 const DATA_DIR = process.env.DATA_DIR ?? "./data";
 const POLL_MS = Math.max(5, Number(process.env.POLL_SECONDS ?? 30)) * 1000;
 const DEFAULT_WEBHOOK = process.env.DISCORD_WEBHOOK_URL || null;
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || null;
-const INDEX_HTML = fs.readFileSync(fileURLToPath(new URL("../public/index.html", import.meta.url)));
+const TRUST_PROXY = process.env.TRUST_PROXY === "true";
+const COOKIE_SECURE = process.env.COOKIE_SECURE === "true";
+const COOKIE_NAME = "dw_session";
+const page = (name) => fs.readFileSync(fileURLToPath(new URL(`../public/${name}`, import.meta.url)));
+const INDEX_HTML = page("index.html");
+const LOGIN_HTML = page("login.html");
 
+const FIFTEEN_MIN = 15 * 60e3;
 const store = new Store(DATA_DIR);
+const users = new UserStore(DATA_DIR);
+const sessions = new SessionStore();
+const ipLimiter = new FailureLimiter({ max: 20, windowMs: FIFTEEN_MIN, lockMs: FIFTEEN_MIN });
+const userLimiter = new FailureLimiter({ max: 10, windowMs: FIFTEEN_MIN, lockMs: FIFTEEN_MIN });
+setInterval(() => {
+  sessions.sweep();
+  ipLimiter.sweep();
+  userLimiter.sweep();
+}, 60_000).unref();
+
+const generated = await bootstrapAdmin(users, {
+  username: process.env.ADMIN_USERNAME,
+  password: process.env.ADMIN_PASSWORD,
+});
+if (generated) {
+  console.log("================================================================");
+  console.log(" No users existed: created admin account.");
+  console.log(`   username: ${process.env.ADMIN_USERNAME || "admin"}`);
+  console.log(`   password: ${generated}`);
+  console.log(" This is shown once. Change it after logging in.");
+  console.log("================================================================");
+}
+
 const monitor = new Monitor({ query: queryInfo, defaultWebhook: DEFAULT_WEBHOOK, pollMs: POLL_MS });
 store.list().forEach((s) => monitor.start(s));
 
-function authorized(req) {
-  if (!ADMIN_PASSWORD) return true;
-  const m = /^Basic (.+)$/.exec(req.headers.authorization ?? "");
-  if (!m) return false;
-  const given = Buffer.from(m[1], "base64").toString("utf8").split(":").slice(1).join(":");
-  const a = crypto.createHash("sha256").update(given).digest();
-  const b = crypto.createHash("sha256").update(ADMIN_PASSWORD).digest();
-  return crypto.timingSafeEqual(a, b);
+// ---- helpers ----
+
+function clientIp(req) {
+  if (TRUST_PROXY) {
+    const xff = String(req.headers["x-forwarded-for"] ?? "").split(",");
+    const last = xff[xff.length - 1].trim(); // the hop our proxy appended; earlier entries are client-supplied
+    if (last) return last;
+  }
+  return req.socket.remoteAddress ?? "unknown";
 }
 
-function view(s) {
+function parseCookies(req) {
+  const out = {};
+  for (const part of String(req.headers.cookie ?? "").split(";")) {
+    const i = part.indexOf("=");
+    if (i > 0) out[part.slice(0, i).trim()] = part.slice(i + 1).trim();
+  }
+  return out;
+}
+
+function sessionCookie(req, token, maxAgeSec) {
+  const secure = COOKIE_SECURE || (TRUST_PROXY && req.headers["x-forwarded-proto"] === "https");
+  return `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAgeSec}${secure ? "; Secure" : ""}`;
+}
+
+// Mutating requests from another origin are refused (SameSite=Strict on the cookie is the primary defence).
+function sameOrigin(req) {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  const host = (TRUST_PROXY && req.headers["x-forwarded-host"]) || req.headers.host;
+  try {
+    return new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}
+
+function readJson(req) {
+  return new Promise((resolve, reject) => {
+    if (!(req.headers["content-type"] ?? "").startsWith("application/json")) {
+      return reject(new AuthError("content-type must be application/json", 415));
+    }
+    let body = "";
+    req.on("data", (c) => {
+      body += c;
+      if (body.length > 10_000) {
+        reject(new AuthError("body too large", 413));
+        req.destroy();
+      }
+    });
+    req.on("end", () => {
+      try {
+        const v = JSON.parse(body);
+        if (v === null || typeof v !== "object") throw new Error();
+        resolve(v);
+      } catch {
+        reject(new AuthError("invalid JSON", 400));
+      }
+    });
+  });
+}
+
+function reply(res, status, body, type = "application/json", headers = {}) {
+  res.writeHead(status, { "content-type": type, "cache-control": "no-store", ...headers });
+  res.end(type === "application/json" ? JSON.stringify(body) : body);
+}
+
+function redirect(res, location) {
+  res.writeHead(302, { location, "cache-control": "no-store" });
+  res.end();
+}
+
+function serverView(s) {
   return {
     id: s.id,
     host: s.host,
@@ -37,69 +127,157 @@ function view(s) {
   };
 }
 
-function readJson(req) {
-  return new Promise((resolve, reject) => {
-    if (!(req.headers["content-type"] ?? "").startsWith("application/json")) {
-      return reject(Object.assign(new Error("content-type must be application/json"), { status: 415 }));
-    }
-    let body = "";
-    req.on("data", (c) => {
-      body += c;
-      if (body.length > 10_000) {
-        reject(Object.assign(new Error("body too large"), { status: 413 }));
-        req.destroy();
-      }
+// ---- routes ----
+
+async function login(req, res) {
+  const { username, password } = await readJson(req);
+  const name = typeof username === "string" ? username.trim().toLowerCase().slice(0, 64) : "";
+  const ip = clientIp(req);
+  // Locked keys are refused before the password is even checked, so a lockout reveals nothing.
+  const wait = Math.max(ipLimiter.retryAfter(ip), userLimiter.retryAfter(name));
+  if (wait > 0) {
+    return reply(res, 429, { error: `too many failed attempts, try again in ${Math.ceil(wait / 60)} min`, retryAfter: wait }, "application/json", {
+      "retry-after": String(wait),
     });
-    req.on("end", () => {
-      try {
-        resolve(JSON.parse(body));
-      } catch {
-        reject(Object.assign(new Error("invalid JSON"), { status: 400 }));
-      }
-    });
+  }
+  const user = await users.verify(name, password);
+  if (!user) {
+    ipLimiter.fail(ip);
+    userLimiter.fail(name);
+    console.warn(`${new Date().toISOString()} failed login for "${name}" from ${ip}`);
+    return reply(res, 401, { error: "invalid username or password" });
+  }
+  userLimiter.reset(name);
+  users.touchLogin(user.username);
+  const token = sessions.create(user.username);
+  return reply(res, 200, { username: user.username, role: user.role }, "application/json", {
+    "set-cookie": sessionCookie(req, token, sessions.maxMs / 1000),
   });
 }
 
-function reply(res, status, body, type = "application/json") {
-  res.writeHead(status, { "content-type": type, "cache-control": "no-store" });
-  res.end(type === "application/json" ? JSON.stringify(body) : body);
+async function api(req, res, url, session) {
+  const me = session.user;
+  const { pathname } = url;
+  const method = req.method;
+  const requireAdmin = () => {
+    if (me.role !== "admin") throw new AuthError("admin only", 403);
+  };
+
+  if (method === "GET" && pathname === "/api/me") return reply(res, 200, { username: me.username, role: me.role });
+
+  if (method === "POST" && pathname === "/api/logout") {
+    sessions.destroy(session.token);
+    return reply(res, 200, { ok: true }, "application/json", { "set-cookie": sessionCookie(req, "", 0) });
+  }
+
+  if (method === "POST" && pathname === "/api/me/password") {
+    const { currentPassword, newPassword } = await readJson(req);
+    const key = `pw:${me.username}`;
+    const wait = userLimiter.retryAfter(key);
+    if (wait > 0) throw new AuthError(`too many failed attempts, try again in ${Math.ceil(wait / 60)} min`, 429);
+    if (!(await users.verify(me.username, currentPassword))) {
+      userLimiter.fail(key);
+      throw new AuthError("current password is incorrect", 403);
+    }
+    userLimiter.reset(key);
+    await users.setPassword(me.username, newPassword);
+    sessions.destroyUser(me.username, session.token); // log out everywhere else
+    return reply(res, 200, { ok: true });
+  }
+
+  // ---- servers (any signed-in user) ----
+  if (method === "GET" && pathname === "/api/servers") {
+    return reply(res, 200, { defaultWebhook: Boolean(DEFAULT_WEBHOOK), servers: store.list().map(serverView) });
+  }
+  if (method === "POST" && pathname === "/api/servers") {
+    const s = store.add(await readJson(req));
+    monitor.start(s);
+    return reply(res, 201, serverView(s));
+  }
+  const delServer = method === "DELETE" && /^\/api\/servers\/([\w-]+)$/.exec(pathname);
+  if (delServer) {
+    if (!store.remove(delServer[1])) return reply(res, 404, { error: "not found" });
+    monitor.stop(delServer[1]);
+    return reply(res, 200, { ok: true });
+  }
+
+  // ---- user management (admin) ----
+  if (pathname === "/api/users" || pathname.startsWith("/api/users/")) {
+    requireAdmin();
+    if (method === "GET" && pathname === "/api/users") return reply(res, 200, { users: users.list() });
+    if (method === "POST" && pathname === "/api/users") {
+      const created = await users.create(await readJson(req));
+      console.log(`${new Date().toISOString()} ${me.username} created user ${created.username} (${created.role})`);
+      return reply(res, 201, created);
+    }
+    const target = /^\/api\/users\/([a-z0-9._-]+)$/.exec(pathname)?.[1];
+    if (target && method === "PATCH") {
+      const { role, password } = await readJson(req);
+      if (role === undefined && password === undefined) throw new AuthError("nothing to change");
+      if (target === me.username) throw new AuthError("use Account > change password, and you can't change your own role");
+      if (!users.get(target)) throw new AuthError("user not found", 404);
+      if (password !== undefined) validatePassword(password); // validate everything before applying anything
+      if (role !== undefined) users.setRole(target, role);
+      if (password !== undefined) {
+        await users.setPassword(target, password);
+        sessions.destroyUser(target);
+      }
+      console.log(`${new Date().toISOString()} ${me.username} updated user ${target}`);
+      return reply(res, 200, users.get(target));
+    }
+    if (target && method === "DELETE") {
+      if (target === me.username) throw new AuthError("you can't delete your own account");
+      users.remove(target);
+      sessions.destroyUser(target);
+      console.log(`${new Date().toISOString()} ${me.username} deleted user ${target}`);
+      return reply(res, 200, { ok: true });
+    }
+  }
+
+  return reply(res, 404, { error: "not found" });
 }
 
 const server = http.createServer(async (req, res) => {
   try {
-    if (req.url === "/healthz") return reply(res, 200, { ok: true });
-    if (!authorized(req)) {
-      res.writeHead(401, { "www-authenticate": 'Basic realm="dayz-watch"' });
-      return res.end();
-    }
+    res.setHeader("x-content-type-options", "nosniff");
+    res.setHeader("x-frame-options", "DENY");
+    res.setHeader("referrer-policy", "no-referrer");
+    res.setHeader(
+      "content-security-policy",
+      "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+    );
     const url = new URL(req.url, "http://x");
-    if (req.method === "GET" && url.pathname === "/") return reply(res, 200, INDEX_HTML, "text/html; charset=utf-8");
-    if (req.method === "GET" && url.pathname === "/api/servers") {
-      return reply(res, 200, { defaultWebhook: Boolean(DEFAULT_WEBHOOK), servers: store.list().map(view) });
+    const { pathname } = url;
+    if (pathname === "/healthz") return reply(res, 200, { ok: true });
+    if (req.method !== "GET" && req.method !== "HEAD" && !sameOrigin(req)) {
+      return reply(res, 403, { error: "cross-origin request blocked" });
     }
-    if (req.method === "POST" && url.pathname === "/api/servers") {
-      const input = await readJson(req);
-      const s = store.add(input);
-      monitor.start(s);
-      return reply(res, 201, view(s));
+    if (req.method === "POST" && pathname === "/api/login") return await login(req, res);
+
+    const token = parseCookies(req)[COOKIE_NAME];
+    const s = sessions.get(token);
+    const user = s && users.get(s.username);
+    const session = user ? { token, user } : null;
+
+    if (req.method === "GET" && pathname === "/login") {
+      return session ? redirect(res, "/") : reply(res, 200, LOGIN_HTML, "text/html; charset=utf-8");
     }
-    const del = req.method === "DELETE" && /^\/api\/servers\/([\w-]+)$/.exec(url.pathname);
-    if (del) {
-      if (!store.remove(del[1])) return reply(res, 404, { error: "not found" });
-      monitor.stop(del[1]);
-      return reply(res, 200, { ok: true });
+    if (!session) {
+      return pathname.startsWith("/api/") ? reply(res, 401, { error: "authentication required" }) : redirect(res, "/login");
     }
+    if (req.method === "GET" && pathname === "/") return reply(res, 200, INDEX_HTML, "text/html; charset=utf-8");
+    if (pathname.startsWith("/api/")) return await api(req, res, url, session);
     reply(res, 404, { error: "not found" });
   } catch (e) {
     const status = e.status ?? (/^(invalid|webhook|server already)/.test(e.message) ? 400 : 500);
     if (status === 500) console.error(e);
-    reply(res, status, { error: e.message });
+    if (!res.headersSent) reply(res, status, { error: status === 500 ? "internal error" : e.message });
   }
 });
 
 server.listen(PORT, () => {
-  console.log(`dayz-watch listening on :${PORT}, ${store.list().length} server(s), poll ${POLL_MS / 1000}s`);
-  if (!ADMIN_PASSWORD) console.warn("ADMIN_PASSWORD not set: web UI is unauthenticated");
+  console.log(`dayz-watch listening on :${PORT}, ${store.list().length} server(s), ${users.count()} user(s), poll ${POLL_MS / 1000}s`);
+  if (!COOKIE_SECURE && !TRUST_PROXY) console.warn("Session cookie is not marked Secure (set COOKIE_SECURE=true when serving over HTTPS)");
 });
 
 for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => process.exit(0));

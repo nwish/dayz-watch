@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dayz-watch – sign in</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font: 14px system-ui, sans-serif; background: #14161a; color: #e6e6e6; min-height: 100vh; margin: 0; display: flex; align-items: center; justify-content: center; }
+  main { width: min(360px, 90vw); background: #1a1d23; border: 1px solid #333840; border-radius: 12px; padding: 2rem; }
+  h1 { font-size: 1.3rem; margin: 0 0 1.4rem; }
+  label { display: block; color: #9aa0a6; margin: 0 0 .3rem; }
+  input, button { font: inherit; padding: .6rem .7rem; background: #1e2127; color: inherit; border: 1px solid #333840; border-radius: 4px; width: 100%; box-sizing: border-box; }
+  input { margin-bottom: 1rem; }
+  input:focus { outline: none; border-color: #5865f2; }
+  button { cursor: pointer; background: #5865f2; border-color: #5865f2; font-weight: 600; }
+  button:disabled { opacity: .6; cursor: default; }
+  #err { color: #ff7b72; min-height: 1.3em; margin-top: .8rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>dayz-watch</h1>
+  <form id="f">
+    <label for="u">Username</label>
+    <input id="u" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus>
+    <label for="p">Password</label>
+    <input id="p" name="password" type="password" autocomplete="current-password" required>
+    <button id="go" type="submit">Sign in</button>
+    <div id="err" role="alert"></div>
+  </form>
+</main>
+<script>
+const f = document.getElementById("f");
+const err = document.getElementById("err");
+const go = document.getElementById("go");
+f.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  err.textContent = "";
+  go.disabled = true;
+  try {
+    const r = await fetch("/api/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username: f.username.value, password: f.password.value }),
+    });
+    if (r.ok) {
+      location.replace("/");
+      return;
+    }
+    const data = await r.json().catch(() => ({}));
+    err.textContent = data.error ?? `Sign-in failed (${r.status})`;
+    f.password.value = "";
+    f.password.focus();
+  } catch {
+    err.textContent = "Could not reach the server.";
+  } finally {
+    go.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

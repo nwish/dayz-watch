@@ -7,22 +7,38 @@ It polls each server with the Steam A2S_INFO query (UDP). DayZ answers on **game
 ## Run with Docker
 
 ```sh
-cp .env.example .env   # set ADMIN_PASSWORD (and optionally DISCORD_WEBHOOK_URL)
+cp .env.example .env   # optionally set ADMIN_PASSWORD and DISCORD_WEBHOOK_URL
 docker compose up -d --build
+docker logs dayz-watch # shows the generated admin password if you didn't set one
 ```
 
-Open `http://<host>:8080`, log in with any username and your `ADMIN_PASSWORD`, and add servers.
+Open `http://<host>:8080` and sign in. Everything else (servers, users) is managed in the UI.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `ADMIN_PASSWORD` | unset | HTTP basic auth for the UI/API. If unset the UI is open to anyone who can reach the port. |
+| `ADMIN_USERNAME` | `admin` | Username of the first admin. Only used while no users exist. |
+| `ADMIN_PASSWORD` | generated | Password of the first admin (10-128 chars). Only used while no users exist; if empty, a random one is printed once in the container log. |
+| `TRUST_PROXY` | `false` | Set `true` behind a reverse proxy: the client IP for rate limiting is taken from the last `X-Forwarded-For` entry (the one your proxy appended), and `X-Forwarded-Proto`/`-Host` are honoured. Only enable it if the container is reachable *only* through that proxy, otherwise clients can spoof their IP. |
+| `COOKIE_SECURE` | `false` | Mark the session cookie `Secure`. Set `true` when served over HTTPS (implied by `TRUST_PROXY=true` when the proxy sends `X-Forwarded-Proto: https`). |
 | `DISCORD_WEBHOOK_URL` | unset | Default webhook, used by servers added without their own. Optional: with no webhook at all, servers are still monitored in the UI but nothing is posted. |
 | `POLL_SECONDS` | 30 | Poll interval (minimum 5). |
 | `PORT` | 8080 | Host port published by compose (container always listens on 8080). |
 
-Server list is stored in the `dayz-watch-data` volume (`/data/servers.json`). Per-server webhook URLs are stored there in plain text and are never returned by the API.
+Data lives in the `dayz-watch-data` volume: `servers.json` (per-server webhook URLs in plain text, never returned by the API) and `users.json` (scrypt password hashes, file mode 600).
 
-The container needs outbound UDP to the query ports and outbound HTTPS to Discord. Behind a reverse proxy, add TLS there: basic auth over plain HTTP is readable on the wire.
+The container needs outbound UDP to the query ports and outbound HTTPS to Discord. Put TLS in front of it (reverse proxy) for anything beyond a trusted LAN: the login form sends the password in the clear over plain HTTP.
+
+## Accounts and login
+
+- A login page replaces the old HTTP basic auth. Sessions are server-side, in an `HttpOnly`, `SameSite=Strict` cookie; they expire after 12 h idle or 7 days total and are lost when the container restarts.
+- **Roles:** `admin` can do everything including user management; `user` can view and manage servers but not users.
+- **Admin → Users:** add users, make/unmake admins, reset passwords, delete. Resetting a password or deleting a user signs that user out immediately. You can't delete yourself or change your own role, and the last admin can't be demoted or deleted.
+- **Account:** any user can change their own password (needs the current one; their other sessions are signed out).
+- Usernames are 3-32 characters of `a-z 0-9 . _ -` (case-insensitive). Passwords are 10-128 characters.
+- **Rate limiting** applies to failed logins: 10 failures per username or 20 per client IP within 15 minutes locks that username/IP for 15 minutes (HTTP 429 with `Retry-After`). A locked key is refused before the password is checked. Counters are in memory and reset on restart. Trade-off: anyone can lock a known username out for 15 minutes by guessing wrongly; other accounts and valid sessions are unaffected.
+- State-changing requests must be JSON and, if they carry an `Origin` header, same-origin.
+
+**Upgrading from the basic-auth version:** `ADMIN_PASSWORD` keeps working as the first admin's password on the first start after upgrading (the old "any username" login no longer exists; sign in as `ADMIN_USERNAME`, default `admin`).
 
 ## Behaviour
 
