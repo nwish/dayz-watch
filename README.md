@@ -23,7 +23,8 @@ Open `http://<host>:8080` and sign in. Everything else (servers, users) is manag
 | `COOKIE_SECURE` | `false` | Mark the session cookie `Secure`. Set `true` when served over HTTPS (implied by `TRUST_PROXY=true` when the proxy sends `X-Forwarded-Proto: https`). |
 | `DISCORD_WEBHOOK_URL` | unset | Default webhook, used by servers added without their own. Optional: with no webhook at all, servers are still monitored in the UI but nothing is posted. |
 | `POLL_SECONDS` | 30 | Poll interval (minimum 5). |
-| `OFFLINE_AFTER` | 3 | Consecutive failed polls before a server counts as offline (see Behaviour). At the default poll interval, 3 is about 90 s. |
+| `OFFLINE_AFTER` | 3 | Consecutive failed polls before a server counts as offline (see Behaviour). With the quick rechecks below, 3 is roughly 25 s of silence, so a restart well under a minute is still caught. |
+| `RECHECK_SECONDS` | 5 | While a server isn't answering it is polled this often instead of every `POLL_SECONDS` (minimum 2). Set it to `POLL_SECONDS` or more to turn the quick rechecks off. |
 | `REBOOT_WINDOW_MINUTES` | 10 | A server that is down for less than this is treated as a normal restart, not an outage: no Discord message and shown as "restarting?" in the UI. `0` treats every offline server as an outage. |
 | `DIRECTORY_URL` | DZSA Launcher list | JSON list of public servers used by the add-server search (see below). Override only to point at a compatible mirror. |
 | `HOST_PORT` | 8080 | Host port published by compose (the container itself always listens on 8080). |
@@ -51,7 +52,7 @@ The container needs outbound UDP to the query ports and outbound HTTPS to Discor
 
 ### Offline servers
 
-A server is **offline** after `OFFLINE_AFTER` failed polls in a row; a single dropped packet is just a blip and shows as `Query failing (1/3)`. Game servers restart on a schedule and are dark for a few minutes each time, so what happens next depends on how long it stays dark (`REBOOT_WINDOW_MINUTES`, default 10):
+A server is **offline** after `OFFLINE_AFTER` failed polls in a row; a single dropped packet is just a blip and shows as `Query failing (1/3)`. As soon as one poll fails, the server is polled again every `RECHECK_SECONDS` (default 5) instead of every `POLL_SECONDS`, so a restart that is over in under two minutes is still noticed, and its length is measured to within a few seconds. The quick rechecks stop once the server has been dark longer than the restart window, so a dead server isn't polled every few seconds forever. Game servers restart on a schedule and are dark for a few minutes each time, so what happens next depends on how long it stays dark (`REBOOT_WINDOW_MINUTES`, default 10):
 
 - **Shorter than the window: a restart.** The list and overlay say `restarting?` (with how long it has been dark) instead of a stale player count, and nothing is posted to Discord. When it answers again the first reading is a fresh baseline, so the restart doesn't post `players 20 → 0` either.
 - **Still dark at the end of the window: an outage.** The display changes to `offline`, and if a webhook is set one message is posted: `**Name** (host:port) is **offline**: no answer for 10m (query timeout)`. It is not repeated while the outage lasts.
@@ -79,7 +80,7 @@ Notes:
 
 - Polls are folded into 5-minute buckets (poll count, answered polls, sum/min/max players), so storage is about 26k small rows per server over 90 days whatever `POLL_SECONDS` is. Deleting a server deletes its history.
 - Days and the heatmap use the browser's timezone; one fixed UTC offset is applied to the whole range, so around a daylight-saving change the hours shift by one.
-- "Answered polls" counts only polls made while the container was running. Time the container was down is a gap in the charts, not downtime.
+- "Answered polls" counts only polls made while the container was running. Time the container was down is a gap in the charts, not downtime. The quick rechecks are not all written to the history (about one failed poll per `POLL_SECONDS`), so a restart doesn't weigh more heavily in this share than its length warrants.
 - **Downtime** is recorded with the monitor's exact times, from the first failed poll to the first answered one, and only once the server has been declared offline (`OFFLINE_AFTER` failed polls in a row), so shorter blips aren't listed. The length matches "Offline for ..." in the server list and the Discord "back online after ..." message. Restart or outage is decided when the page is read, from the length and the current `REBOOT_WINDOW_MINUTES`, so changing the setting re-sorts the history, and an ongoing downtime turns from restart into outage once it outlasts the window. A downtime still open when the app restarts is ended at the last moment it was being watched (the app can't see what happened while it was down), and a server that is still down starts a new one after the restart. Only downtime recorded since this feature was added is listed; earlier gaps still show as breaks in the line.
 - History starts when the server is added (or when you upgrade); there is no backfill. The page says how much of the selected window has been collected.
 - The database uses Node's built-in `node:sqlite` (no dependencies), which Node 22 still labels experimental; the start command silences that warning.
