@@ -132,7 +132,7 @@
     #add { grid-template-columns: 1fr; }
     .inline > * { flex: 1 1 100%; }
     /* overlay */
-    .card { background: var(--art-sm, var(--art)); width: 94vw; padding: 1.2rem 1.1rem; }
+    .card { background: var(--art-sm, var(--art)); box-sizing: border-box; width: calc(100% - 1.5rem); padding: 1.2rem 1.1rem; } /* border-box + calc: .75rem of backdrop on each side */
     #ov-players { font-size: 5.5rem; }
     #ov-max { font-size: 1.8rem; }
     .delta { font-size: 1.15rem; }
