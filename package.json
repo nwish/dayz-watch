@@ -1,0 +1,12 @@
+{
+  "name": "dayz-watch",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Discord notifications when a DayZ server's player count changes, with a web UI to manage servers",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test \"test/*.test.js\""
+  },
+  "engines": { "node": ">=22" }
+}

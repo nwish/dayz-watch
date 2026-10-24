@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dayz-watch</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font: 14px system-ui, sans-serif; background: #14161a; color: #e6e6e6; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.3rem; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; }
+  th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid #2a2d33; }
+  th { color: #9aa0a6; font-weight: 500; }
+  .err { color: #ff7b72; }
+  .ok { color: #7ee787; }
+  .muted { color: #9aa0a6; }
+  form { display: grid; grid-template-columns: 2fr 1fr; gap: .6rem; }
+  form input[name=webhookUrl] { grid-column: 1 / -1; }
+  input, button { font: inherit; padding: .5rem .6rem; background: #1e2127; color: inherit; border: 1px solid #333840; border-radius: 4px; }
+  button { cursor: pointer; }
+  button:hover { border-color: #5865f2; }
+  #msg { grid-column: 1 / -1; min-height: 1.2em; }
+  #warn { color: #f0b429; }
+</style>
+</head>
+<body>
+<h1>dayz-watch</h1>
+<p id="warn"></p>
+<table>
+  <thead><tr><th>Server</th><th>Address</th><th>Map</th><th>Players</th><th>Status</th><th></th></tr></thead>
+  <tbody id="rows"><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
+</table>
+
+<h2 style="font-size:1.05rem">Add server</h2>
+<form id="add">
+  <input name="host" placeholder="Host or IP, e.g. 85.190.157.254" required>
+  <input name="queryPort" type="number" min="1" max="65535" placeholder="Query port (game port + 1)" required>
+  <input name="webhookUrl" id="webhook" placeholder="Discord webhook URL" autocomplete="off">
+  <button type="submit">Add</button>
+  <span id="msg"></span>
+</form>
+
+<script>
+const rows = document.getElementById("rows");
+const msg = document.getElementById("msg");
+let defaultWebhook = false;
+
+function cell(tr, text, cls) {
+  const td = tr.insertCell();
+  td.textContent = text;
+  if (cls) td.className = cls;
+  return td;
+}
+
+function ago(iso) {
+  if (!iso) return "never";
+  const s = Math.round((Date.now() - Date.parse(iso)) / 1000);
+  return s < 60 ? `${s}s ago` : `${Math.round(s / 60)}m ago`;
+}
+
+async function load() {
+  const r = await fetch("/api/servers");
+  const data = await r.json();
+  defaultWebhook = data.defaultWebhook;
+  document.getElementById("webhook").placeholder = defaultWebhook
+    ? "Discord webhook URL (optional, overrides default)"
+    : "Discord webhook URL (required)";
+  document.getElementById("webhook").required = !defaultWebhook;
+  rows.replaceChildren();
+  if (!data.servers.length) {
+    const tr = rows.insertRow();
+    const td = cell(tr, "No servers yet.", "muted");
+    td.colSpan = 6;
+  }
+  for (const s of data.servers) {
+    const tr = rows.insertRow();
+    cell(tr, s.info?.name ?? "—");
+    cell(tr, `${s.host}:${s.queryPort}`);
+    cell(tr, s.info?.map ?? "—");
+    cell(tr, s.info ? `${s.info.players}/${s.info.maxPlayers}` : "—");
+    cell(tr, s.error ? s.error : `ok, ${ago(s.checkedAt)}`, s.error ? "err" : "ok");
+    const td = tr.insertCell();
+    const btn = document.createElement("button");
+    btn.textContent = "Remove";
+    btn.onclick = async () => {
+      if (!confirm(`Remove ${s.host}:${s.queryPort}?`)) return;
+      await fetch(`/api/servers/${s.id}`, { method: "DELETE" });
+      load();
+    };
+    td.append(btn);
+  }
+}
+
+document.getElementById("add").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const body = { host: f.host.value, queryPort: f.queryPort.value, webhookUrl: f.webhookUrl.value };
+  const r = await fetch("/api/servers", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await r.json();
+  msg.textContent = r.ok ? "Added." : data.error;
+  msg.className = r.ok ? "ok" : "err";
+  if (r.ok) f.reset();
+  load();
+});
+
+load();
+setInterval(load, 5000);
+</script>
+</body>
+</html>
