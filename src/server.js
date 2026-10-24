@@ -79,9 +79,6 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "POST" && url.pathname === "/api/servers") {
       const input = await readJson(req);
-      if (!input.webhookUrl && !DEFAULT_WEBHOOK) {
-        return reply(res, 400, { error: "webhook URL required (no DISCORD_WEBHOOK_URL default configured)" });
-      }
       const s = store.add(input);
       monitor.start(s);
       return reply(res, 201, view(s));

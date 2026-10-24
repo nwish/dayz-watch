@@ -71,10 +71,7 @@ export class Monitor {
     const msg = formatChange(info, prev);
     console.log(`${ts()} ${server.host}:${server.queryPort} ${msg}`);
     const url = server.webhookUrl ?? this.defaultWebhook;
-    if (!url) {
-      console.error(`${ts()} no webhook for ${server.host}:${server.queryPort}`);
-      return;
-    }
+    if (!url) return; // no webhook configured: monitor only, no notification
     try {
       await this.notify(url, msg);
     } catch (e) {

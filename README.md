@@ -1,6 +1,6 @@
 # dayz-watch
 
-Posts to a Discord webhook whenever a DayZ server's player count changes. Servers are managed in a small web UI.
+Watches DayZ servers from a small web UI and, if a Discord webhook is configured, posts whenever a server's player count changes.
 
 It polls each server with the Steam A2S_INFO query (UDP). DayZ answers on **game port + 1**: for a server on 11300, add query port `11301`.
 
@@ -16,7 +16,7 @@ Open `http://<host>:8080`, log in with any username and your `ADMIN_PASSWORD`, a
 | Variable | Default | Meaning |
 |---|---|---|
 | `ADMIN_PASSWORD` | unset | HTTP basic auth for the UI/API. If unset the UI is open to anyone who can reach the port. |
-| `DISCORD_WEBHOOK_URL` | unset | Default webhook. A server added without its own webhook uses this; if unset, a webhook is required per server. |
+| `DISCORD_WEBHOOK_URL` | unset | Default webhook, used by servers added without their own. Optional: with no webhook at all, servers are still monitored in the UI but nothing is posted. |
 | `POLL_SECONDS` | 30 | Poll interval (minimum 5). |
 | `PORT` | 8080 | Host port published by compose (container always listens on 8080). |
 

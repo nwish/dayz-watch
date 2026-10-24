@@ -35,7 +35,7 @@
 <form id="add">
   <input name="host" placeholder="Host or IP, e.g. 85.190.157.254" required>
   <input name="queryPort" type="number" min="1" max="65535" placeholder="Query port (game port + 1)" required>
-  <input name="webhookUrl" id="webhook" placeholder="Discord webhook URL" autocomplete="off">
+  <input name="webhookUrl" id="webhook" placeholder="Discord webhook URL (optional; blank = monitor only unless a default is set)" autocomplete="off">
   <button type="submit">Add</button>
   <span id="msg"></span>
 </form>
@@ -43,7 +43,6 @@
 <script>
 const rows = document.getElementById("rows");
 const msg = document.getElementById("msg");
-let defaultWebhook = false;
 
 function cell(tr, text, cls) {
   const td = tr.insertCell();
@@ -61,11 +60,6 @@ function ago(iso) {
 async function load() {
   const r = await fetch("/api/servers");
   const data = await r.json();
-  defaultWebhook = data.defaultWebhook;
-  document.getElementById("webhook").placeholder = defaultWebhook
-    ? "Discord webhook URL (optional, overrides default)"
-    : "Discord webhook URL (required)";
-  document.getElementById("webhook").required = !defaultWebhook;
   rows.replaceChildren();
   if (!data.servers.length) {
     const tr = rows.insertRow();
@@ -78,7 +72,8 @@ async function load() {
     cell(tr, `${s.host}:${s.queryPort}`);
     cell(tr, s.info?.map ?? "—");
     cell(tr, s.info ? `${s.info.players}/${s.info.maxPlayers}` : "—");
-    cell(tr, s.error ? s.error : `ok, ${ago(s.checkedAt)}`, s.error ? "err" : "ok");
+    const notifies = s.hasWebhook || data.defaultWebhook;
+    cell(tr, (s.error ? s.error : `ok, ${ago(s.checkedAt)}`) + (notifies ? "" : " · no webhook, not notifying"), s.error ? "err" : notifies ? "ok" : "muted");
     const td = tr.insertCell();
     const btn = document.createElement("button");
     btn.textContent = "Remove";

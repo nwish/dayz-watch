@@ -101,6 +101,15 @@ test("monitor: per-server webhook overrides default", async () => {
   assert.equal(posts[0].url, "https://own");
 });
 
+test("monitor: without any webhook, changes are tracked but nothing is posted and no error is set", async () => {
+  const { m, posts, tick } = monitorHarness(null);
+  await tick(info(1));
+  await tick(info(3));
+  assert.equal(posts.length, 0);
+  assert.equal(m.status("s1").error, null);
+  assert.equal(m.status("s1").info.players, 3);
+});
+
 test("monitor: notify failure does not break polling or lose the new baseline", async () => {
   const { m, tick } = monitorHarness();
   m.notify = async () => {
