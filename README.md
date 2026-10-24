@@ -36,6 +36,21 @@ Click a server row to open a large overlay with the live player count plus basic
 
 Browsers only allow audio after a user gesture, so sound is enabled by the click that opens the overlay. The overlay sees changes as fast as the server is polled (`POLL_SECONDS`), so a 30 s poll means up to 30 s before an alert.
 
+The overlay is themed by the server's map (colours, sky gradient, and a landscape drawn as inline SVG):
+
+| Map (A2S name) | Theme |
+|---|---|
+| `nasdara`, `takistan`, `takistanplus` | Desert |
+| `enoch` (Livonia) | Forest |
+| `chernarusplus` (and any `chernarus*` variant) | Temperate |
+| `namalsk` | Arctic |
+| `sakhal` | Frozen island (aurora) |
+| `deerisle` | Coastal |
+| `esseker` | Harvest |
+| anything else | Default dark |
+
+To add a map, add an entry to `MAP_THEME` in `public/index.html` (and a new entry in `THEMES` if it needs its own look). Match is on the map name lower-cased with non-letters removed.
+
 ## Development
 
 ```sh

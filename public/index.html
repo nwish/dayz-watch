@@ -23,27 +23,33 @@
   #warn { color: #f0b429; }
   tr.clickable { cursor: pointer; }
   tr.clickable:hover { background: #1b1e24; }
-  #overlay { position: fixed; inset: 0; background: rgba(0,0,0,.78); display: flex; align-items: center; justify-content: center; z-index: 10; }
+  #overlay { --art: #1a1d23; --border: #333840; --text: #e6e6e6; --muted: #9aa0a6; --accent: #c9d1d9; --backdrop: rgba(0,0,0,.78); position: fixed; inset: 0; background: var(--backdrop); display: flex; align-items: center; justify-content: center; z-index: 10; }
   #overlay[hidden] { display: none; }
-  .card { position: relative; width: min(680px, 92vw); max-height: 92vh; overflow: auto; background: #1a1d23; border: 1px solid #333840; border-radius: 12px; padding: 2rem 2.2rem; }
-  .card h2 { margin: 0 2rem .5rem 0; font-size: 1.15rem; font-weight: 600; color: #c9d1d9; }
+  .card { position: relative; width: min(680px, 92vw); max-height: 92vh; overflow: auto; background: var(--art); color: var(--text); border: 1px solid var(--border); border-radius: 12px; padding: 2rem 2.2rem; }
+  .card h2 { margin: 0 2rem .5rem 0; font-size: 1.15rem; font-weight: 600; color: var(--accent); }
   .close { position: absolute; top: .8rem; right: .8rem; width: 2.2rem; height: 2.2rem; padding: 0; font-size: 1.4rem; line-height: 1; }
   #ov-count { font-weight: 700; line-height: 1; margin: .4rem 0; display: inline-block; }
   #ov-players { font-size: 8rem; }
-  #ov-max { font-size: 2.6rem; color: #9aa0a6; margin-left: .6rem; }
+  #ov-max { font-size: 2.6rem; color: var(--muted); margin-left: .6rem; }
   .delta { font-size: 1.4rem; font-weight: 600; min-height: 1.8rem; margin-bottom: 1rem; }
   dl { display: grid; grid-template-columns: max-content 1fr; gap: .4rem 1.4rem; margin: 0 0 1.2rem; }
-  dt { color: #9aa0a6; }
+  dt { color: var(--muted); }
+  .card .muted { color: var(--muted); }
   dd { margin: 0; }
   .foot { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
-  .flash-up { animation: flash-up .5s ease-in-out 5; }
-  .flash-down { animation: flash-down .5s ease-in-out 5; }
+  .card { isolation: isolate; }
+  .card::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--flash, transparent); opacity: 0; pointer-events: none; z-index: 0; }
+  .card > :not(.close) { position: relative; z-index: 1; }
+  .flash-up { --flash: #2ea043; animation: flash-up .5s ease-in-out 5; }
+  .flash-down { --flash: #da3633; animation: flash-down .5s ease-in-out 5; }
+  .flash-up::before, .flash-down::before { animation: flash-fill .5s ease-in-out 5; }
   #ov-count.pop { animation: pop .6s ease-out; }
+  @keyframes flash-fill { 50% { opacity: .55; } }
   @keyframes flash-up {
-    50% { background: #1f5c32; border-color: #3fb950; box-shadow: 0 0 0 10px rgba(63,185,80,.55), 0 0 90px 20px rgba(63,185,80,.7); }
+    50% { border-color: #3fb950; box-shadow: 0 0 0 10px rgba(63,185,80,.55), 0 0 90px 20px rgba(63,185,80,.7); }
   }
   @keyframes flash-down {
-    50% { background: #5c1f1f; border-color: #f85149; box-shadow: 0 0 0 10px rgba(248,81,73,.55), 0 0 90px 20px rgba(248,81,73,.7); }
+    50% { border-color: #f85149; box-shadow: 0 0 0 10px rgba(248,81,73,.55), 0 0 90px 20px rgba(248,81,73,.7); }
   }
   @keyframes pop { 30% { transform: scale(1.25); } }
 </style>
@@ -135,6 +141,102 @@ const overlay = document.getElementById("overlay");
 const card = document.getElementById("card");
 const ovCount = document.getElementById("ov-count");
 
+// ---- Per-map themes (keyed by the A2S map name, lower-cased, letters only) ----
+// Art is inline SVG, stretched to the card; `top` is a small/accent decoration, `bottom` a landscape silhouette.
+const svgUrl = (vb, body, aspect = "none") =>
+  `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='${vb}' preserveAspectRatio='${aspect}'>${body}</svg>`)}")`;
+const ridge = (d, fill, op) => `<path d='${d} L600 200 L0 200Z' fill='${fill}' opacity='${op}'/>`;
+const pines = (fill, op, base, h) =>
+  Array.from({ length: 24 }, (_, k) => {
+    const x = k * 26 + (k % 3) * 7;
+    const s = 0.75 + ((k * 7) % 5) * 0.14;
+    return `<g fill='${fill}' opacity='${op}'><polygon points='${x - 15 * s},${base} ${x},${base - h * s} ${x + 15 * s},${base}'/><polygon points='${x - 11 * s},${base - h * s * 0.4} ${x},${base - h * s * 1.2} ${x + 11 * s},${base - h * s * 0.4}'/></g>`;
+  }).join("");
+const disc = (cx, cy, r, fill, op) => `<circle cx='${cx}' cy='${cy}' r='${r}' fill='${fill}' opacity='${op}'/>`;
+const TOP_RIGHT = "right 60px top 16px / 130px 130px no-repeat";
+const BOTTOM = "bottom / 100% 34% no-repeat";
+
+const THEMES = {
+  default: { label: "Default", sky: "#1a1d23", border: "#333840", text: "#e6e6e6", muted: "#9aa0a6", accent: "#c9d1d9", backdrop: "rgba(0,0,0,.78)" },
+  desert: {
+    label: "Desert",
+    sky: "linear-gradient(180deg,#2a1a0e 0%,#5a3a1c 100%)",
+    border: "#d9964a", text: "#fbeed7", muted: "#cfae82", accent: "#ffc977", backdrop: "rgba(40,20,5,.84)",
+    top: [svgUrl("0 0 140 140", disc(70, 70, 54, "#ffb347", 0.18) + disc(70, 70, 34, "#ffb347", 0.85), "xMidYMid meet"), TOP_RIGHT],
+    bottom: [svgUrl("0 0 600 200", ridge("M0 120 C100 60 200 140 320 90 C430 45 520 110 600 80", "#d9964a", 0.3) + ridge("M0 165 C120 120 240 195 360 140 C470 100 540 150 600 130", "#b9722f", 0.45)), BOTTOM],
+  },
+  forest: {
+    label: "Forest",
+    sky: "linear-gradient(180deg,#0b1f14 0%,#1d4029 100%)",
+    border: "#4c9a63", text: "#e9f5ec", muted: "#9cc2a6", accent: "#8fe0a3", backdrop: "rgba(2,12,6,.86)",
+    top: [svgUrl("0 0 140 140", disc(70, 70, 50, "#e8f5d0", 0.12) + disc(70, 70, 30, "#e8f5d0", 0.4), "xMidYMid meet"), TOP_RIGHT],
+    bottom: [svgUrl("0 0 600 200", pines("#3f9a5c", 0.5, 200, 95) + pines("#143d25", 0.8, 215, 80)), BOTTOM],
+  },
+  temperate: {
+    label: "Temperate",
+    sky: "linear-gradient(180deg,#1b2128 0%,#2b3a2c 100%)",
+    border: "#8a9a5b", text: "#eceee4", muted: "#aab39a", accent: "#c5d27a", backdrop: "rgba(8,10,8,.84)",
+    top: [svgUrl("0 0 140 140", "<ellipse cx='55' cy='70' rx='40' ry='16' fill='#dfe6d0' opacity='.22'/><ellipse cx='85' cy='58' rx='34' ry='15' fill='#dfe6d0' opacity='.22'/>", "xMidYMid meet"), TOP_RIGHT],
+    bottom: [svgUrl("0 0 600 200", ridge("M0 110 C90 70 180 120 300 85 C420 50 500 100 600 75", "#8a9a5b", 0.28) + ridge("M0 160 C130 115 230 175 350 130 C460 90 540 140 600 120", "#4f6b3a", 0.5)), BOTTOM],
+  },
+  arctic: {
+    label: "Arctic",
+    sky: "linear-gradient(180deg,#0c1824 0%,#1e3a52 100%)",
+    border: "#8cc4ee", text: "#eef7ff", muted: "#a2c3dc", accent: "#b6e2ff", backdrop: "rgba(2,10,20,.86)",
+    top: [svgUrl("0 0 140 140", [[30, 40, 5], [90, 25, 4], [110, 80, 6], [55, 100, 4], [20, 115, 3], [75, 60, 3]].map(([x, y, r]) => disc(x, y, r, "#ffffff", 0.7)).join(""), "xMidYMid meet"), TOP_RIGHT],
+    bottom: [svgUrl("0 0 600 200", ridge("M0 130 L60 90 L100 125 L170 60 L230 120 L300 80 L360 130 L440 55 L510 115 L560 90 L600 120", "#cfeaff", 0.22) + ridge("M0 170 L80 135 L150 165 L250 120 L340 160 L450 125 L540 160 L600 140", "#8fc7ee", 0.32)), BOTTOM],
+  },
+  sakhal: {
+    label: "Frozen island",
+    sky: "linear-gradient(180deg,#0f1428 0%,#233a5a 100%)",
+    border: "#6fe3c1", text: "#eef6ff", muted: "#9eb4d0", accent: "#7ff0cf", backdrop: "rgba(4,6,18,.88)",
+    top: [svgUrl("0 0 600 120", "<defs><filter id='b'><feGaussianBlur stdDeviation='9'/></filter></defs><path d='M0 70 C100 10 200 100 300 50 S500 20 600 60' stroke='#5ff2b0' stroke-width='24' fill='none' opacity='.45' filter='url(#b)'/><path d='M0 95 C120 45 220 120 330 78 S520 50 600 90' stroke='#9a7bff' stroke-width='16' fill='none' opacity='.35' filter='url(#b)'/>"), "top / 100% 38% no-repeat"],
+    bottom: [svgUrl("0 0 600 200", ridge("M0 140 L70 100 L140 135 L220 75 L300 130 L400 90 L500 135 L600 105", "#dbe8ff", 0.2) + ridge("M0 175 L90 145 L190 172 L300 140 L420 172 L520 150 L600 168", "#7aa2d6", 0.34)), BOTTOM],
+  },
+  coast: {
+    label: "Coastal",
+    sky: "linear-gradient(180deg,#0b1e2b 0%,#14505a 100%)",
+    border: "#4fc3b5", text: "#e6f7f5", muted: "#96c4c0", accent: "#6fe0d0", backdrop: "rgba(2,12,18,.86)",
+    top: [svgUrl("0 0 140 140", disc(70, 70, 50, "#fff2c9", 0.14) + disc(70, 70, 28, "#fff2c9", 0.6), "xMidYMid meet"), TOP_RIGHT],
+    bottom: [svgUrl("0 0 600 200", ridge("M0 120 Q50 100 100 120 T200 120 T300 120 T400 120 T500 120 T600 120", "#4fc3b5", 0.28) + ridge("M0 155 Q50 135 100 155 T200 155 T300 155 T400 155 T500 155 T600 155", "#1f8f94", 0.4) + ridge("M0 185 Q50 168 100 185 T200 185 T300 185 T400 185 T500 185 T600 185", "#0d5e6a", 0.55)), BOTTOM],
+  },
+  harvest: {
+    label: "Harvest",
+    sky: "linear-gradient(180deg,#241f0f 0%,#4a3d17 100%)",
+    border: "#d6b34a", text: "#f8f0d4", muted: "#c9b87c", accent: "#f0cf63", backdrop: "rgba(20,14,2,.86)",
+    top: [svgUrl("0 0 140 140", disc(70, 70, 52, "#ffd36b", 0.16) + disc(70, 70, 32, "#ffd36b", 0.8), "xMidYMid meet"), TOP_RIGHT],
+    bottom: [svgUrl("0 0 600 200", ridge("M0 115 C110 80 210 130 330 95 C440 62 520 105 600 85", "#d6b34a", 0.28) + ridge("M0 165 C130 130 240 185 360 145 C470 110 540 150 600 135", "#8c7a2c", 0.5)), BOTTOM],
+  },
+};
+const MAP_THEME = {
+  nasdara: "desert", takistan: "desert", takistanplus: "desert",
+  enoch: "forest", livonia: "forest",
+  chernarus: "temperate", chernarusplus: "temperate",
+  namalsk: "arctic",
+  sakhal: "sakhal",
+  deerisle: "coast",
+  esseker: "harvest",
+};
+
+function themeKey(map) {
+  const m = (map ?? "").toLowerCase().replace(/[^a-z]/g, "");
+  return MAP_THEME[m] ?? (m.startsWith("chernarus") ? "temperate" : "default");
+}
+
+function applyTheme(map) {
+  const key = themeKey(map);
+  if (card.dataset.theme === key) return;
+  const t = THEMES[key];
+  card.dataset.theme = key;
+  const set = (k, v) => overlay.style.setProperty(k, v);
+  set("--art", [t.top && t.top.join(" "), t.bottom && t.bottom.join(" "), t.sky].filter(Boolean).join(", "));
+  set("--border", t.border);
+  set("--text", t.text);
+  set("--muted", t.muted);
+  set("--accent", t.accent);
+  set("--backdrop", t.backdrop);
+}
+
 function openOverlay(s) {
   // Created inside the click handler so the browser allows audio playback later.
   audioCtx ??= new AudioContext();
@@ -142,6 +244,7 @@ function openOverlay(s) {
   openId = s.id;
   lastPlayers = s.info?.players ?? null;
   document.getElementById("ov-delta").textContent = "";
+  applyTheme(s.info?.map);
   card.classList.remove("flash-up", "flash-down");
   overlay.hidden = false;
   renderOverlay(s);
@@ -154,6 +257,7 @@ function closeOverlay() {
 
 function renderOverlay(s) {
   const i = s.info;
+  if (i) applyTheme(i.map);
   document.getElementById("ov-name").textContent = i?.name ?? `${s.host}:${s.queryPort}`;
   document.getElementById("ov-players").textContent = i ? i.players : "—";
   document.getElementById("ov-max").textContent = i ? `/ ${i.maxPlayers}` : "";
