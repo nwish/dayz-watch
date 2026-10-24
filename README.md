@@ -28,31 +28,15 @@ Data lives in the `dayz-watch-data` volume: `servers.json` (per-server webhook U
 
 The container needs outbound UDP to the query ports and outbound HTTPS to Discord. Put TLS in front of it (reverse proxy) for anything beyond a trusted LAN: the login form sends the password in the clear over plain HTTP.
 
-### Behind Traefik
-
-`compose.traefik.yaml` is an overlay that adds the Traefik labels and `TRUST_PROXY=true`. Put your hostname in `.env` (`DOMAIN`, optionally `TRAEFIK_MIDDLEWARES`, `TRAEFIK_ENTRYPOINT`, `TRAEFIK_CERTRESOLVER`) and run:
-
-```sh
-docker compose -f compose.yaml -f compose.traefik.yaml up -d --build
-```
-
-### Deploying from Git with Komodo (or similar)
-
-`compose.yaml` and `compose.traefik.yaml` contain no host-specific values, so a Git-backed stack can use them as-is: file paths `compose.yaml` (plus `compose.traefik.yaml` if you use Traefik), and everything else in the stack's **Environment** box (it becomes the `.env`). Keep host names, ports and passwords there, never in the compose files.
-
-Komodo's compose-file editor in a Git-backed stack commits and pushes its edits back to the repository. To rule that out, don't edit compose files in Komodo, and leave the stack's Git account empty for a public repo so it holds no credentials that could push.
-
 ## Accounts and login
 
-- A login page replaces the old HTTP basic auth. Sessions are server-side, in an `HttpOnly`, `SameSite=Strict` cookie; they expire after 12 h idle or 7 days total and are lost when the container restarts.
+- Sessions are server-side, in an `HttpOnly`, `SameSite=Strict` cookie; they expire after 12 h idle or 7 days total and are lost when the container restarts.
 - **Roles:** `admin` can do everything including user management; `user` can view and manage servers but not users.
 - **Admin → Users:** add users, make/unmake admins, reset passwords, delete. Resetting a password or deleting a user signs that user out immediately. You can't delete yourself or change your own role, and the last admin can't be demoted or deleted.
 - **Account:** any user can change their own password (needs the current one; their other sessions are signed out).
 - Usernames are 3-32 characters of `a-z 0-9 . _ -` (case-insensitive). Passwords are 10-128 characters.
 - **Rate limiting** applies to failed logins: 10 failures per username or 20 per client IP within 15 minutes locks that username/IP for 15 minutes (HTTP 429 with `Retry-After`). A locked key is refused before the password is checked. Counters are in memory and reset on restart. Trade-off: anyone can lock a known username out for 15 minutes by guessing wrongly; other accounts and valid sessions are unaffected.
 - State-changing requests must be JSON and, if they carry an `Origin` header, same-origin.
-
-**Upgrading from the basic-auth version:** `ADMIN_PASSWORD` keeps working as the first admin's password on the first start after upgrading (the old "any username" login no longer exists; sign in as `ADMIN_USERNAME`, default `admin`).
 
 ## Behaviour
 
