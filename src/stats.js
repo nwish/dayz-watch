@@ -39,6 +39,13 @@ export class Stats {
         cap       INTEGER,           -- last reported max players
         PRIMARY KEY (server_id, bucket)
       ) WITHOUT ROWID;
+      -- Exact outage intervals from the monitor's own clock (first failed poll .. first answered poll).
+      CREATE TABLE IF NOT EXISTS outages (
+        server_id TEXT NOT NULL,
+        started   INTEGER NOT NULL,  -- unix seconds
+        ended     INTEGER,           -- NULL while the outage is still going on
+        PRIMARY KEY (server_id, started)
+      ) WITHOUT ROWID;
     `);
     this.insert = this.db.prepare(`
       INSERT INTO samples (server_id, bucket, n, ok, sum, lo, hi, cap) VALUES (?1, ?2, 1, ?3, ?4, ?5, ?5, ?6)
@@ -61,11 +68,36 @@ export class Stats {
 
   remove(serverId) {
     this.db.prepare("DELETE FROM samples WHERE server_id = ?").run(serverId);
+    this.db.prepare("DELETE FROM outages WHERE server_id = ?").run(serverId);
   }
 
   prune() {
     const cutoff = Math.floor((this.now() - RETENTION_S) / BUCKET_S) * BUCKET_S;
+    this.db.prepare("DELETE FROM outages WHERE ended IS NOT NULL AND ended < ?").run(cutoff);
     return Number(this.db.prepare("DELETE FROM samples WHERE bucket < ?").run(cutoff).changes);
+  }
+
+  // The monitor declares a server offline / answering again. `at` is unix seconds.
+  outageStart(serverId, at) {
+    this.db
+      .prepare("INSERT INTO outages (server_id, started) SELECT ?1, ?2 WHERE NOT EXISTS (SELECT 1 FROM outages WHERE server_id = ?1 AND ended IS NULL)")
+      .run(serverId, Math.floor(at));
+  }
+
+  outageEnd(serverId, at) {
+    this.db.prepare("UPDATE outages SET ended = MAX(started, ?2) WHERE server_id = ?1 AND ended IS NULL").run(serverId, Math.floor(at));
+  }
+
+  // Call once at startup, before polling resumes. An outage still open from the previous run can't be
+  // followed while the app was down, so it ends at the last moment we know we were watching.
+  closeOpenOutages() {
+    const now = Math.floor(this.now());
+    for (const o of this.db.prepare("SELECT server_id AS id, started FROM outages WHERE ended IS NULL").all()) {
+      const last = this.db.prepare("SELECT MAX(bucket) AS b FROM samples WHERE server_id = ?").get(o.id).b;
+      const watchedUntil = last == null ? o.started : last + BUCKET_S; // end of the last window we have samples for
+      const end = Math.max(o.started, Math.min(now, watchedUntil));
+      this.db.prepare("UPDATE outages SET ended = ? WHERE server_id = ? AND started = ?").run(end, o.id, o.started);
+    }
   }
 
   // Admin view of the database itself: totals, per-server coverage, page/file sizes.
@@ -152,6 +184,22 @@ export class Stats {
     ).map((c) => ({ dow: c.dow, hr: c.hr, avg: avg(c.sum, c.ok) }));
     const busiest = heatmap.reduce((b, c) => (!b || c.avg > b.avg ? c : b), null);
 
+    // Outage intervals come from the monitor's exact timestamps, so they match "Offline for ..." and the
+    // Discord messages. An ongoing one runs to now; durations in the totals are clipped to this range.
+    const now = Math.floor(this.now());
+    const spans = all("SELECT started, ended FROM outages WHERE server_id = ?1 AND (ended IS NULL OR ended >= ?2) ORDER BY started", serverId, from).map((o) => ({
+      from: o.started,
+      to: o.ended ?? now,
+      ongoing: o.ended === null,
+    }));
+    const clipped = (o) => Math.max(0, o.to - Math.max(o.from, from));
+    const outages = {
+      count: spans.length,
+      totalSeconds: Math.round(spans.reduce((a, o) => a + clipped(o), 0)),
+      longestSeconds: Math.round(spans.reduce((a, o) => Math.max(a, clipped(o)), 0)),
+      list: spans.reverse().slice(0, 20), // newest first
+    };
+
     return {
       range, from, to, step: r.step,
       summary: {
@@ -165,7 +213,7 @@ export class Stats {
         since: tot.since,
         busiest,
       },
-      series, daily, heatmap,
+      series, daily, heatmap, outages,
     };
   }
 }

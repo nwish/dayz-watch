@@ -42,6 +42,12 @@
   .stat .v { font-size: 1.7rem; font-weight: 700; line-height: 1.2; margin: .15rem 0; }
   .stat .v small { font-size: .9rem; color: var(--dim); font-weight: 400; }
   .stat .s { font-size: .8rem; color: var(--dim); overflow-wrap: anywhere; }
+  .stat.bad { border-left-color: var(--err); }
+  .stat.bad .v { color: var(--err); }
+  .outs { width: 100%; border-collapse: collapse; }
+  .outs th, .outs td { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid var(--line); }
+  .outs th { color: var(--dim); font-size: .75rem; font-weight: 500; text-transform: uppercase; letter-spacing: .08em; }
+  .outs .live { color: var(--err); font-weight: 600; }
   section { background: var(--panel); border: 1px solid var(--line); border-radius: 3px; padding: 1rem; margin-bottom: 1.2rem; }
   section[hidden] { display: none; }
   .chart { position: relative; width: 100%; }
@@ -117,6 +123,11 @@
   <div class="scale"><span>quiet</span><span class="ramp"></span><span id="heat-max">busy</span></div>
 </section>
 
+<section id="out-sec">
+  <h3>Outages <span class="muted" style="text-transform:none;letter-spacing:0">(first failed poll until the server answers again)</span></h3>
+  <div id="outages"></div>
+</section>
+
 <script>
 const $ = (id) => document.getElementById(id);
 const NS = "http://www.w3.org/2000/svg";
@@ -176,19 +187,44 @@ function stat(label, value, sub, extra) {
   return h("div", { className: "stat" }, h("div", { className: "k", textContent: label }), v, h("div", { className: "s", textContent: sub ?? "" }));
 }
 
+function fmtDur(sec) {
+  if (sec < 3600) return `${Math.max(1, Math.round(sec / 60))} min`;
+  const h = Math.floor(sec / 3600);
+  return h < 24 ? `${h} h ${Math.round((sec % 3600) / 60)} min` : `${Math.floor(h / 24)} d ${h % 24} h`;
+}
+
 function renderCards(d) {
-  const { summary: sm, server } = d;
-  const cards = [];
+  const { summary: sm, server, outages } = d;
   const cur = server.info;
-  cards.push(
-    stat("Now", cur ? String(cur.players) : "—", server.error ? `query failing: ${server.error}` : cur ? `of ${cur.maxPlayers} slots` : "waiting for first poll", cur ? `/ ${cur.maxPlayers}` : ""),
+  const offline = server.state === "offline";
+  const now = offline
+    ? stat("Now", "Offline", `since ${fmtStamp(Date.parse(server.offlineSince) / 1000)}: ${server.error}`)
+    : stat("Now", cur ? String(cur.players) : "—", server.failures ? `query failing (${server.failures}): ${server.error}` : server.error ? server.error : cur ? `of ${cur.maxPlayers} slots` : "waiting for first poll", cur ? `/ ${cur.maxPlayers}` : "");
+  if (offline) now.classList.add("bad");
+  const out = stat("Outages", String(outages.count), outages.count ? `${fmtDur(outages.totalSeconds)} down, longest ${fmtDur(outages.longestSeconds)}` : "none in this period");
+  if (outages.list[0]?.ongoing) out.classList.add("bad");
+  $("cards").replaceChildren(
+    now,
     stat("Average", num(sm.avg), sm.capacity && sm.avg != null ? `${Math.round((100 * sm.avg) / sm.capacity)}% of ${sm.capacity} slots` : ""),
     stat("Peak", sm.max == null ? "—" : String(sm.max), sm.peakAt ? fmtStamp(sm.peakAt) : ""),
     stat("Lowest", sm.min == null ? "—" : String(sm.min), ""),
     stat("Answered polls", sm.uptime == null ? "—" : `${num(sm.uptime)}%`, `${sm.polls.toLocaleString()} polls`),
+    out,
     stat("Busiest hour", sm.busiest ? `${DOW[sm.busiest.dow]} ${String(sm.busiest.hr).padStart(2, "0")}:00` : "—", sm.busiest ? `avg ${num(sm.busiest.avg)} players` : ""),
   );
-  $("cards").replaceChildren(...cards);
+}
+
+function drawOutages(d) {
+  const { outages: o } = d;
+  const box = $("outages");
+  if (!o.list.length) return box.replaceChildren(h("p", { className: "muted", textContent: "No outages in this period." }));
+  const table = h("table", { className: "outs" }, h("thead", {}, h("tr", {}, h("th", { textContent: "Started" }), h("th", { textContent: "Duration" }), h("th", { textContent: "" }))));
+  const body = h("tbody");
+  for (const x of o.list) {
+    body.append(h("tr", {}, h("td", { textContent: fmtStamp(x.from) }), h("td", { textContent: fmtDur(x.to - x.from) }), h("td", { className: x.ongoing ? "live" : "muted", textContent: x.ongoing ? "ongoing" : `ended ${fmtStamp(x.to)}` })));
+  }
+  table.append(body);
+  box.replaceChildren(table, ...(o.count > o.list.length ? [h("p", { className: "muted", textContent: `Showing the ${o.list.length} most recent of ${o.count}.` })] : []));
 }
 
 // ---- Timeline ----
@@ -382,6 +418,7 @@ function render(d) {
   drawTimeline(d);
   drawDaily(d);
   drawHeat(d);
+  drawOutages(d);
 }
 
 async function load() {

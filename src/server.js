@@ -12,6 +12,7 @@ import { AuthError, FailureLimiter, SessionStore, UserStore, bootstrapAdmin, val
 const PORT = Number(process.env.PORT ?? 8080);
 const DATA_DIR = process.env.DATA_DIR ?? "./data";
 const POLL_MS = Math.max(5, Number(process.env.POLL_SECONDS ?? 30)) * 1000;
+const OFFLINE_AFTER = Math.max(1, Math.floor(Number(process.env.OFFLINE_AFTER)) || 3); // consecutive failed polls before a server counts as offline
 const DEFAULT_WEBHOOK = process.env.DISCORD_WEBHOOK_URL || null;
 const directory = new Directory({ url: process.env.DIRECTORY_URL || DEFAULT_DIRECTORY_URL });
 const TRUST_PROXY = process.env.TRUST_PROXY === "true";
@@ -50,13 +51,16 @@ if (generated) {
 }
 
 const stats = new Stats(path.join(DATA_DIR, "stats.db"));
+stats.closeOpenOutages(); // an outage left open by the previous run can't be followed while we were down
 stats.prune();
 setInterval(() => stats.prune(), 60 * 60e3).unref(); // keep 90 days
 const monitor = new Monitor({
   query: queryInfo,
   defaultWebhook: DEFAULT_WEBHOOK,
   pollMs: POLL_MS,
+  offlineAfter: OFFLINE_AFTER,
   onSample: (s, sample) => stats.record(s.id, sample),
+  onOutage: (s, kind, atMs) => (kind === "start" ? stats.outageStart(s.id, atMs / 1000) : stats.outageEnd(s.id, atMs / 1000)),
 });
 store.list().forEach((s) => monitor.start(s));
 
@@ -232,7 +236,7 @@ async function api(req, res, url, session) {
 
   // ---- servers (any signed-in user) ----
   if (method === "GET" && pathname === "/api/servers") {
-    return reply(res, 200, { defaultWebhook: Boolean(DEFAULT_WEBHOOK), servers: store.list().map(serverView) });
+    return reply(res, 200, { defaultWebhook: Boolean(DEFAULT_WEBHOOK), offlineAfter: OFFLINE_AFTER, servers: store.list().map(serverView) });
   }
   const statsReq = method === "GET" && /^\/api\/servers\/([\w-]+)\/stats$/.exec(pathname);
   if (statsReq) {

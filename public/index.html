@@ -76,6 +76,8 @@
   #ov-count { font-weight: 700; line-height: 1; margin: .4rem 0; display: inline-block; }
   #ov-players { font-size: 8rem; }
   #ov-max { font-size: 2.6rem; color: var(--muted); margin-left: .6rem; }
+  .card.offline #ov-count { opacity: .5; filter: grayscale(1); }
+  .card.offline #ov-players { font-size: 4.5rem; text-transform: uppercase; letter-spacing: .06em; }
   .delta { font-size: 1.4rem; font-weight: 600; min-height: 1.8rem; margin-bottom: 1rem; }
   dl { display: grid; grid-template-columns: max-content 1fr; gap: .4rem 1.4rem; margin: 0 0 1.2rem; }
   dt { color: var(--muted); }
@@ -127,6 +129,7 @@
     /* overlay */
     .card { background: var(--art-sm, var(--art)); box-sizing: border-box; width: calc(100% - 1.5rem); padding: 1.2rem 1.1rem; } /* border-box + calc: .75rem of backdrop on each side */
     #ov-players { font-size: 5.5rem; }
+    .card.offline #ov-players { font-size: 3.2rem; }
     #ov-max { font-size: 1.8rem; }
     .delta { font-size: 1.15rem; }
     dl { gap: .35rem 1rem; }
@@ -206,6 +209,25 @@ function ago(iso) {
   return s < 60 ? `${s}s ago` : `${Math.round(s / 60)}m ago`;
 }
 
+// Compact elapsed time since an ISO timestamp: 45s, 12m, 3h 5m, 2d 4h.
+function span(iso) {
+  const s = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  return h < 24 ? `${h}h ${m % 60}m` : `${Math.floor(h / 24)}d ${h % 24}h`;
+}
+const clock = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+// Reachability text for a server, or null when there is nothing to report. offlineAfter comes from the server.
+let offlineAfter = 3;
+function statusText(s) {
+  if (s.state === "offline") return `Offline for ${span(s.offlineSince)} (since ${clock(s.offlineSince)}): ${s.error}`;
+  if (s.failures) return `Query failing (${s.failures}/${offlineAfter}): ${s.error}`;
+  return s.error ?? null;
+}
+
 // fetch wrapper: JSON in/out, and a lost session (401) sends the user to the login page.
 async function api(path, { method = "GET", body } = {}) {
   const r = await fetch(path, {
@@ -222,6 +244,7 @@ async function api(path, { method = "GET", body } = {}) {
 
 async function load() {
   const { data } = await api("/api/servers");
+  offlineAfter = data.offlineAfter ?? offlineAfter;
   rows.replaceChildren();
   if (!data.servers.length) {
     const tr = rows.insertRow();
@@ -235,9 +258,9 @@ async function load() {
     cell(tr, s.info?.name ?? "—");
     cell(tr, `${s.host}:${s.queryPort}`);
     cell(tr, s.info?.map ?? "—");
-    cell(tr, s.info ? `${s.info.players}/${s.info.maxPlayers}` : "—");
+    cell(tr, s.state === "offline" ? "offline" : s.info ? `${s.info.players}/${s.info.maxPlayers}` : "—", s.state === "offline" ? "err" : "");
     const notifies = s.hasWebhook || data.defaultWebhook;
-    cell(tr, (s.error ? s.error : `ok, ${ago(s.checkedAt)}`) + (notifies ? "" : " · no webhook, not notifying"), s.error ? "err" : notifies ? "ok" : "muted");
+    cell(tr, (statusText(s) ?? `ok, ${ago(s.checkedAt)}`) + (notifies ? "" : " · no webhook, not notifying"), s.error ? "err" : notifies ? "ok" : "muted");
     const td = tr.insertCell();
     const btn = document.createElement("button");
     btn.textContent = "Remove";
@@ -422,7 +445,7 @@ function openOverlay(s) {
   audioCtx ??= new AudioContext();
   audioCtx.resume();
   openId = s.id;
-  lastPlayers = s.info?.players ?? null;
+  lastPlayers = s.state === "offline" ? null : (s.info?.players ?? null);
   document.getElementById("ov-delta").textContent = "";
   applyTheme(s.info?.map, s.info?.gameTime);
   card.classList.remove("flash-up", "flash-down");
@@ -439,8 +462,20 @@ function renderOverlay(s) {
   const i = s.info;
   if (i) applyTheme(i.map, i.gameTime);
   document.getElementById("ov-name").textContent = i?.name ?? `${s.host}:${s.queryPort}`;
-  document.getElementById("ov-players").textContent = i ? i.players : "—";
-  document.getElementById("ov-max").textContent = i ? `/ ${i.maxPlayers}` : "";
+  const offline = s.state === "offline";
+  card.classList.toggle("offline", offline);
+  document.getElementById("ov-players").textContent = offline ? "offline" : i ? i.players : "—";
+  document.getElementById("ov-max").textContent = offline ? "" : i ? `/ ${i.maxPlayers}` : "";
+  const delta = document.getElementById("ov-delta");
+  if (offline) {
+    delta.textContent = i ? `Last seen with ${i.players}/${i.maxPlayers} players` : "";
+    delta.className = "delta muted";
+    delta.dataset.offline = "1";
+  } else if (delta.dataset.offline) {
+    delta.textContent = "";
+    delta.className = "delta";
+    delete delta.dataset.offline;
+  }
   const yn = (v) => (v ? "Yes" : "No");
   const facts = [
     ["Address", `${s.host}:${s.queryPort}`],
@@ -463,7 +498,7 @@ function renderOverlay(s) {
     dl.append(dt, dd);
   }
   const st = document.getElementById("ov-status");
-  st.textContent = s.error ? s.error : `Last checked ${ago(s.checkedAt)}`;
+  st.textContent = statusText(s) ?? `Last checked ${ago(s.checkedAt)}`;
   st.className = s.error ? "err" : "muted";
 }
 
@@ -472,6 +507,10 @@ function refreshOverlay(servers) {
   const s = servers.find((x) => x.id === openId);
   if (!s) return closeOverlay(); // removed elsewhere
   renderOverlay(s);
+  if (s.state === "offline") {
+    lastPlayers = null; // coming back is a fresh baseline, like the Discord alert
+    return;
+  }
   if (!s.info) return;
   if (lastPlayers !== null && s.info.players !== lastPlayers) alertChange(s.info.players - lastPlayers);
   lastPlayers = s.info.players;

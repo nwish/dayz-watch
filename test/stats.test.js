@@ -136,3 +136,57 @@ test("dbStats reports totals, per-server coverage and page/file sizes", async ()
   assert.deepEqual([mem.rows, mem.oldest, mem.newest, mem.perServer.length], [0, null, null, 0]);
   assert.deepEqual(mem.files, { db: null, wal: null, shm: null });
 });
+
+test("outages keep the monitor's exact times: ongoing runs to now, newest first, totals clipped to the range", () => {
+  const { s } = harness();
+  s.outageStart("a", T0 - 5 * 86400); // finished long before the 24 h window
+  s.outageEnd("a", T0 - 5 * 86400 + 60);
+  s.outageStart("a", T0 - 7200 + 17); // not aligned to a 5-minute window on purpose
+  s.outageEnd("a", T0 - 7200 + 17 + 600);
+  s.outageStart("a", T0 - 100);
+  s.outageStart("a", T0 - 50); // already open: ignored, the outage keeps its real start
+  assert.deepEqual(s.query("a", "24h").outages, {
+    count: 2,
+    totalSeconds: 700,
+    longestSeconds: 600,
+    list: [
+      { from: T0 - 100, to: T0, ongoing: true },
+      { from: T0 - 7200 + 17, to: T0 - 7200 + 17 + 600, ongoing: false },
+    ],
+  });
+
+  s.outageStart("b", T0 - 90000); // began 25 h ago, ended 1 h ago: listed with its real start, counted only from the window start
+  s.outageEnd("b", T0 - 3600);
+  assert.equal(s.query("a", "24h").outages.count, 2);
+  assert.equal(s.query("a", "7d").outages.count, 3);
+  const b = s.query("b", "24h").outages;
+  assert.deepEqual([b.count, b.list[0].from, b.totalSeconds], [1, T0 - 90000, 82500]);
+  assert.deepEqual(s.query("zzz", "24h").outages, { count: 0, totalSeconds: 0, longestSeconds: 0, list: [] });
+});
+
+test("closeOpenOutages ends an outage left open by a previous run at the last moment we were watching", () => {
+  const { s, at } = harness();
+  s.record("a", null); // last sample in the bucket starting at T0
+  s.outageStart("a", T0 - 60);
+  s.outageStart("noSamples", T0 - 60);
+  at(T0 + 3600); // the app was down for an hour
+  s.closeOpenOutages();
+  const a = s.query("a", "24h").outages.list[0];
+  assert.deepEqual([a.from, a.to, a.ongoing], [T0 - 60, T0 + 300, false]); // not "still going for an hour"
+  const n = s.query("noSamples", "24h").outages.list[0];
+  assert.deepEqual([n.from, n.to, n.ongoing], [T0 - 60, T0 - 60, false]);
+});
+
+test("outages are deleted with their server, and pruning keeps open ones", () => {
+  const { s, at } = harness();
+  s.outageStart("a", T0 - RETENTION_S - 7200);
+  s.outageEnd("a", T0 - RETENTION_S - 3600); // ended before the retention cutoff
+  s.outageStart("a", T0 - RETENTION_S - 1000); // still open (monitoring never saw it recover)
+  s.outageStart("b", T0 - 600);
+  s.outageEnd("b", T0 - 300);
+  s.prune();
+  at(T0);
+  assert.equal(s.query("a", "90d").outages.count, 1);
+  s.remove("b");
+  assert.equal(s.query("b", "90d").outages.count, 0);
+});

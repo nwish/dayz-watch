@@ -5,7 +5,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { queryInfo } from "../src/a2s.js";
-import { Monitor } from "../src/monitor.js";
+import { Monitor, formatDuration } from "../src/monitor.js";
+import { Stats } from "../src/stats.js";
 import { Store, validateServerInput } from "../src/store.js";
 
 const cs = (s) => Buffer.from(`${s}\0`);
@@ -78,7 +79,7 @@ function monitorHarness(defaultWebhook = "https://default") {
     defaultWebhook,
   });
   const server = { id: "s1", host: "h", queryPort: 1, webhookUrl: null };
-  m.state.set("s1", { info: null, lastPlayers: null, error: null, checkedAt: null, timer: null, stopped: false });
+  m.track(server);
   const tick = async (v) => {
     next = v;
     await m.tick(server);
@@ -153,7 +154,7 @@ test("monitor: reports every finished poll to onSample, and a throwing recorder 
     },
   });
   const server = { id: "s1", host: "h", queryPort: 1, webhookUrl: null };
-  m.state.set("s1", { info: null, lastPlayers: null, error: null, checkedAt: null, timer: null, stopped: false });
+  m.track(server);
   const origErr = console.error;
   console.error = () => {};
   try {
@@ -172,6 +173,169 @@ test("monitor: reports every finished poll to onSample, and a throwing recorder 
   next = info(7);
   await m.tick(server); // removed servers record nothing
   assert.equal(seen.length, 3);
+});
+
+// Fake-clock harness: every tick() first advances 30 s, like a real poll interval.
+function outageHarness({ webhook = "https://default", offlineAfter = 3, notify, onOutage } = {}) {
+  let t = 0;
+  let next;
+  const posts = [];
+  const m = new Monitor({
+    query: async () => {
+      if (next instanceof Error) throw next;
+      return next;
+    },
+    notify: notify ?? (async (url, content) => posts.push(content)),
+    defaultWebhook: webhook,
+    offlineAfter,
+    onOutage,
+    now: () => t,
+  });
+  const server = { id: "s1", host: "h", queryPort: 1, webhookUrl: null };
+  m.track(server);
+  const tick = async (v) => {
+    t += 30_000;
+    next = v;
+    await m.tick(server);
+  };
+  return { m, posts, tick, status: () => m.status("s1") };
+}
+const down = () => new Error("query timeout");
+
+test("monitor: offline only after N consecutive failures, announced once; recovery is a fresh baseline", async () => {
+  const { posts, tick, status } = outageHarness();
+  await tick(info(20));
+  await tick(down());
+  await tick(down());
+  assert.deepEqual([posts.length, status().state, status().failures], [0, "online", 2]); // two misses are just a blip
+  await tick(down());
+  assert.equal(status().state, "offline");
+  assert.equal(status().offlineSince, new Date(60_000).toISOString()); // first failed poll, not the third
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0], "**N** (h:1) is **offline**: no answer to 3 polls in a row (query timeout)");
+  await tick(down());
+  await tick(down());
+  assert.equal(posts.length, 1); // an ongoing outage doesn't repeat
+
+  await tick(info(0)); // server restarted: must be "back online", not "players 20 -> 0"
+  assert.equal(posts.length, 2);
+  assert.equal(posts[1], "**N** (m) is **back online** after 2m: 0/60 players");
+  assert.deepEqual([status().state, status().failures, status().offlineSince], ["online", 0, null]);
+  await tick(info(3));
+  assert.match(posts[2], /players 0 → \*\*3\*\*\/60 \(\+3\)/); // counting resumes from the recovery reading
+});
+
+test("monitor: a blip below the threshold is silent and keeps the player-count baseline", async () => {
+  const { posts, tick, status } = outageHarness();
+  await tick(info(5));
+  await tick(down());
+  await tick(info(7));
+  assert.equal(posts.length, 1);
+  assert.match(posts[0], /players 5 → \*\*7\*\*/);
+  assert.deepEqual([status().state, status().failures], ["online", 0]);
+});
+
+test("monitor: a server never seen online shows offline but pings nobody, going or coming", async () => {
+  const { posts, tick, status } = outageHarness();
+  for (let i = 0; i < 4; i++) await tick(down());
+  assert.equal(status().state, "offline");
+  assert.equal(status().lastSeenAt, null);
+  await tick(info(4));
+  assert.equal(status().state, "online");
+  assert.deepEqual(posts, []);
+});
+
+test("monitor: with no webhook an outage is still tracked, and a failing webhook doesn't undo it or repeat", async () => {
+  const quiet = outageHarness({ webhook: null });
+  await quiet.tick(info(5));
+  for (let i = 0; i < 3; i++) await quiet.tick(down());
+  assert.equal(quiet.status().state, "offline");
+  assert.equal(quiet.posts.length, 0);
+
+  let calls = 0;
+  const broken = outageHarness({ notify: async () => { calls++; throw new Error("webhook 500"); } });
+  const origErr = console.error;
+  console.error = () => {};
+  try {
+    await broken.tick(info(5));
+    for (let i = 0; i < 5; i++) await broken.tick(down());
+  } finally {
+    console.error = origErr;
+  }
+  assert.equal(broken.status().state, "offline");
+  assert.equal(calls, 1);
+});
+
+test("monitor: outage events fire once at the first failed poll and once at the first answer; a throwing store doesn't stop polling", async () => {
+  const events = [];
+  const { posts, tick } = outageHarness({
+    onOutage: (server, kind, at) => {
+      events.push([server.id, kind, at]);
+      throw new Error("disk full");
+    },
+  });
+  const origErr = console.error;
+  console.error = () => {};
+  try {
+    await tick(info(5)); // t = 30 s
+    await tick(down()); // 60 s: first failure
+    await tick(down());
+    assert.deepEqual(events, []); // below the threshold
+    await tick(down()); // 120 s: declared offline
+    await tick(down());
+    await tick(info(5)); // 180 s: answers
+  } finally {
+    console.error = origErr;
+  }
+  assert.deepEqual(events, [["s1", "start", 60_000], ["s1", "end", 180_000]]); // start = first failed poll, not the 3rd
+  assert.equal(posts.length, 2); // and the Discord alerts still went out
+});
+
+test("monitor + stats agree on how long an outage lasted (list, 'offline for', and the Discord message)", async () => {
+  // The reported bug: the server died partway through a 5-minute window, so a bucket-derived outage
+  // missed the start and rounded the rest up to a full window.
+  let ms = Date.UTC(2026, 9, 24, 22, 28, 0);
+  const stats = new Stats(":memory:", { now: () => ms / 1000 });
+  const posts = [];
+  let next;
+  const m = new Monitor({
+    query: async () => {
+      if (next instanceof Error) throw next;
+      return next;
+    },
+    notify: async (url, content) => posts.push(content),
+    defaultWebhook: "https://default",
+    offlineAfter: 3,
+    now: () => ms,
+    onSample: (s, sample) => stats.record(s.id, sample),
+    onOutage: (s, kind, at) => (kind === "start" ? stats.outageStart(s.id, at / 1000) : stats.outageEnd(s.id, at / 1000)),
+  });
+  const server = { id: "s1", host: "h", queryPort: 1, webhookUrl: null };
+  m.track(server);
+  const tick = async (v) => {
+    ms += 30_000;
+    next = v;
+    await m.tick(server);
+  };
+  await tick(info(5)); // 22:28:30, answered
+  for (let i = 0; i < 3; i++) await tick(down()); // 22:29:00, 22:29:30, 22:30:00: offline, across a window boundary
+
+  ms = Date.UTC(2026, 9, 24, 22, 33, 0); // three minutes into the 22:30 window
+  const ongoing = stats.query("s1", "24h").outages.list[0];
+  const offlineSince = Date.parse(m.status("s1").offlineSince);
+  assert.deepEqual([ongoing.ongoing, ongoing.from * 1000], [true, offlineSince]);
+  assert.equal(ongoing.to * 1000 - ongoing.from * 1000, ms - offlineSince); // "Offline for" and the stats list agree: 4 min, not 5
+  assert.equal(ms - offlineSince, 4 * 60_000);
+
+  await tick(info(0)); // 22:33:30 answers again
+  const done = stats.query("s1", "24h").outages.list[0];
+  assert.equal(done.ongoing, false);
+  assert.equal(done.to - done.from, 270);
+  assert.match(posts.at(-1), /back online\*\* after 4m/); // formatDuration(270 s)
+});
+
+test("formatDuration is compact and rounds down to the largest useful unit", () => {
+  assert.deepEqual([5_000, 150_000, 3_600_000, 3 * 3_600_000 + 5 * 60_000, 52 * 3_600_000].map(formatDuration), ["5s", "2m", "1h 0m", "3h 5m", "2d 4h"]);
 });
 
 test("store: validation rejects bad host, port, and non-Discord webhook", () => {

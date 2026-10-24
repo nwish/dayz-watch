@@ -205,6 +205,11 @@ test("stats: API and page require login, validate input, 404 unknown servers, an
   assert.equal(ok.json.server.id, id);
   assert.deepEqual(Object.keys(ok.json.summary).sort(), ["avg", "busiest", "capacity", "max", "min", "peakAt", "polls", "since", "uptime"]);
   assert.ok(Array.isArray(ok.json.series) && Array.isArray(ok.json.daily) && Array.isArray(ok.json.heatmap));
+  assert.deepEqual(ok.json.outages, { count: 0, totalSeconds: 0, longestSeconds: 0, list: [] });
+  const listed = await c.call("GET", "/api/servers");
+  assert.equal(listed.json.offlineAfter, 3);
+  const view = listed.json.servers.find((s) => s.id === id);
+  assert.ok(["unknown", "online", "offline"].includes(view.state) && Number.isInteger(view.failures));
   assert.equal((await c.call("GET", `/api/servers/${id}/stats`)).json.range, "7d"); // default
   assert.equal((await c.call("GET", `/api/servers/${id}/stats?range=1y`)).status, 400);
   assert.equal((await c.call("GET", `/api/servers/${id}/stats?tz=garbage`)).status, 200); // bad tz falls back to UTC

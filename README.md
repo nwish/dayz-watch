@@ -23,6 +23,7 @@ Open `http://<host>:8080` and sign in. Everything else (servers, users) is manag
 | `COOKIE_SECURE` | `false` | Mark the session cookie `Secure`. Set `true` when served over HTTPS (implied by `TRUST_PROXY=true` when the proxy sends `X-Forwarded-Proto: https`). |
 | `DISCORD_WEBHOOK_URL` | unset | Default webhook, used by servers added without their own. Optional: with no webhook at all, servers are still monitored in the UI but nothing is posted. |
 | `POLL_SECONDS` | 30 | Poll interval (minimum 5). |
+| `OFFLINE_AFTER` | 3 | Consecutive failed polls before a server counts as offline (see Behaviour). At the default poll interval, 3 is about 90 s. |
 | `DIRECTORY_URL` | DZSA Launcher list | JSON list of public servers used by the add-server search (see below). Override only to point at a compatible mirror. |
 | `HOST_PORT` | 8080 | Host port published by compose (the container itself always listens on 8080). |
 
@@ -47,6 +48,15 @@ The container needs outbound UDP to the query ports and outbound HTTPS to Discor
 - A post is sent only when the count differs from the previous successful reading, e.g. `**Name** (map): players 5 → **6**/60 (+1)`.
 - A failed query (timeout, DNS) is shown in the UI and is not treated as a change. A server restart shows as a drop to 0 and a climb back.
 
+### Offline servers
+
+A server is **offline** after `OFFLINE_AFTER` failed polls in a row; a single dropped packet is just a blip and shows as `Query failing (1/3)`. When it goes offline:
+
+- The list and overlay show it as offline, with how long and since when, instead of a stale player count. The overlay dims the count and stops alerting.
+- If a webhook is set, one message is posted: `**Name** (host:port) is **offline**: no answer to 3 polls in a row (query timeout)`. It is not repeated while the outage lasts.
+- When it answers again, one message is posted: `**Name** (map) is **back online** after 12m: 5/60 players`. The downtime counts from the first failed poll. The first reading after recovery is a fresh baseline, so a restarted server doesn't also post `players 20 → 0`.
+- A server that has never answered since the app started (a mistyped host or port) shows as offline in the UI but is **not** announced, going or coming, so a typo can't ping your channel. Likewise, if the app restarts while a server is down, that outage isn't announced again.
+
 ## Finding servers to add
 
 The *Add server* form has a search box. Type part of a server name, number (e.g. `2305`), map, or IP (`85.190.157.254` or `ip:port`) and pick a result: it fills in the host and query port. All words you type must match; name-prefix matches rank first, then busier servers. Typing host and port by hand still works.
@@ -67,6 +77,7 @@ Notes:
 - Polls are folded into 5-minute buckets (poll count, answered polls, sum/min/max players), so storage is about 26k small rows per server over 90 days whatever `POLL_SECONDS` is. Deleting a server deletes its history.
 - Days and the heatmap use the browser's timezone; one fixed UTC offset is applied to the whole range, so around a daylight-saving change the hours shift by one.
 - "Answered polls" counts only polls made while the container was running. Time the container was down is a gap in the charts, not downtime.
+- **Outages** (card and list on the stats page) are recorded with the monitor's exact times, from the first failed poll to the first answered one, and only once the server has been declared offline (`OFFLINE_AFTER` failed polls in a row), so shorter blips aren't listed. The length matches "Offline for ..." in the server list and the Discord "back online after ..." message. An outage still open when the app restarts is ended at the last moment it was being watched (the app can't see what happened while it was down), and a server that is still down starts a new outage after the restart. Only outages recorded since this feature was added are listed; earlier downtime still shows as red shading on the timeline.
 - History starts when the server is added (or when you upgrade); there is no backfill. The page says how much of the selected window has been collected.
 - The database uses Node's built-in `node:sqlite` (no dependencies), which Node 22 still labels experimental; the start command silences that warning.
 
