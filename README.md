@@ -7,6 +7,7 @@ It polls each server with the Steam A2S_INFO query (UDP). DayZ answers on **game
 ## Run with Docker
 
 ```sh
+cp compose.yaml.example compose.yaml   # git ignores compose.yaml, so local edits stay out of the repo
 cp .env.example .env   # optional: set ADMIN_PASSWORD, DISCORD_WEBHOOK_URL, ...
 docker compose up -d --build
 docker compose logs dayz-watcher   # shows the generated admin password if you didn't set one
