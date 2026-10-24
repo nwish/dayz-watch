@@ -1,0 +1,18 @@
+# Builds the image from this repo and runs it. Nothing deployment-specific lives in this file:
+# every setting comes from a `.env` file next to it (see .env.example), so it never needs editing.
+services:
+  dayz-watcher:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-8080}:8080"
+    env_file:
+      - path: .env
+        required: false # optional: without it the app starts with a generated admin password
+    environment:
+      PORT: "8080" # container always listens on 8080; HOST_PORT only changes the published port
+    volumes:
+      - dayz-watch-data:/data
+
+volumes:
+  dayz-watch-data:

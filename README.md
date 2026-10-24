@@ -7,9 +7,9 @@ It polls each server with the Steam A2S_INFO query (UDP). DayZ answers on **game
 ## Run with Docker
 
 ```sh
-cp .env.example .env   # optionally set ADMIN_PASSWORD and DISCORD_WEBHOOK_URL
+cp .env.example .env   # optional: set ADMIN_PASSWORD, DISCORD_WEBHOOK_URL, ...
 docker compose up -d --build
-docker logs dayz-watch # shows the generated admin password if you didn't set one
+docker compose logs dayz-watcher   # shows the generated admin password if you didn't set one
 ```
 
 Open `http://<host>:8080` and sign in. Everything else (servers, users) is managed in the UI.
@@ -22,11 +22,25 @@ Open `http://<host>:8080` and sign in. Everything else (servers, users) is manag
 | `COOKIE_SECURE` | `false` | Mark the session cookie `Secure`. Set `true` when served over HTTPS (implied by `TRUST_PROXY=true` when the proxy sends `X-Forwarded-Proto: https`). |
 | `DISCORD_WEBHOOK_URL` | unset | Default webhook, used by servers added without their own. Optional: with no webhook at all, servers are still monitored in the UI but nothing is posted. |
 | `POLL_SECONDS` | 30 | Poll interval (minimum 5). |
-| `PORT` | 8080 | Host port published by compose (container always listens on 8080). |
+| `HOST_PORT` | 8080 | Host port published by compose (the container itself always listens on 8080). |
 
 Data lives in the `dayz-watch-data` volume: `servers.json` (per-server webhook URLs in plain text, never returned by the API) and `users.json` (scrypt password hashes, file mode 600).
 
 The container needs outbound UDP to the query ports and outbound HTTPS to Discord. Put TLS in front of it (reverse proxy) for anything beyond a trusted LAN: the login form sends the password in the clear over plain HTTP.
+
+### Behind Traefik
+
+`compose.traefik.yaml` is an overlay that adds the Traefik labels and `TRUST_PROXY=true`. Put your hostname in `.env` (`DOMAIN`, optionally `TRAEFIK_MIDDLEWARES`, `TRAEFIK_ENTRYPOINT`, `TRAEFIK_CERTRESOLVER`) and run:
+
+```sh
+docker compose -f compose.yaml -f compose.traefik.yaml up -d --build
+```
+
+### Deploying from Git with Komodo (or similar)
+
+`compose.yaml` and `compose.traefik.yaml` contain no host-specific values, so a Git-backed stack can use them as-is: file paths `compose.yaml` (plus `compose.traefik.yaml` if you use Traefik), and everything else in the stack's **Environment** box (it becomes the `.env`). Keep host names, ports and passwords there, never in the compose files.
+
+Komodo's compose-file editor in a Git-backed stack commits and pushes its edits back to the repository. To rule that out, don't edit compose files in Komodo, and leave the stack's Git account empty for a public repo so it holds no credentials that could push.
 
 ## Accounts and login
 
