@@ -47,9 +47,11 @@ The overlay is themed by the server's map (colours, sky gradient, and a landscap
 | `sakhal` | Frozen island (aurora) |
 | `deerisle` | Coastal |
 | `esseker` | Harvest |
-| anything else | Default dark |
+| anything else | Default (light grey by day, dark by night) |
 
-To add a map, add an entry to `MAP_THEME` in `public/index.html` (and a new entry in `THEMES` if it needs its own look). Match is on the map name lower-cased with non-letters removed.
+Every theme has a **day** and a **night** variant, chosen from the server's in-game clock (the `HH:MM` DayZ puts in the A2S keywords): day is 06:00–17:59, night is 18:00–05:59. Day is a bright sky with a sun or clouds and dark text; night is a dark sky with stars and a moon (Sakhal gets an aurora, Arctic keeps its snowflakes). The card switches live if the clock crosses 06:00 or 18:00 while it is open. A server that reports no in-game time gets the day variant.
+
+To add a map, add an entry to `MAP_THEME` in `public/index.html` (and a new entry in `THEMES` with `day` and `night` variants if it needs its own look). Match is on the map name lower-cased with non-letters removed.
 
 ## Development
 
