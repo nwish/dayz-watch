@@ -31,6 +31,7 @@
   .err { color: var(--err); }
   .ok { color: var(--ok); }
   .muted { color: var(--dim); }
+  .warn { color: var(--warn); }
   #add { display: grid; grid-template-columns: 2fr 1fr; gap: .6rem; }
   #add input[name=webhookUrl] { grid-column: 1 / -1; }
   input, button, select { font: inherit; padding: .5rem .6rem; background: var(--field); color: inherit; border: 1px solid var(--line); border-radius: 3px; }
@@ -78,6 +79,7 @@
   #ov-max { font-size: 2.6rem; color: var(--muted); margin-left: .6rem; }
   .card.offline #ov-count { opacity: .5; filter: grayscale(1); }
   .card.offline #ov-players { font-size: 4.5rem; text-transform: uppercase; letter-spacing: .06em; }
+  .card.restarting #ov-players { font-size: 3.2rem; }
   .delta { font-size: 1.4rem; font-weight: 600; min-height: 1.8rem; margin-bottom: 1rem; }
   dl { display: grid; grid-template-columns: max-content 1fr; gap: .4rem 1.4rem; margin: 0 0 1.2rem; }
   dt { color: var(--muted); }
@@ -130,6 +132,7 @@
     .card { background: var(--art-sm, var(--art)); box-sizing: border-box; width: calc(100% - 1.5rem); padding: 1.2rem 1.1rem; } /* border-box + calc: .75rem of backdrop on each side */
     #ov-players { font-size: 5.5rem; }
     .card.offline #ov-players { font-size: 3.2rem; }
+    .card.restarting #ov-players { font-size: 2.2rem; }
     #ov-max { font-size: 1.8rem; }
     .delta { font-size: 1.15rem; }
     dl { gap: .35rem 1rem; }
@@ -223,7 +226,10 @@ const clock = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", m
 // Reachability text for a server, or null when there is nothing to report. offlineAfter comes from the server.
 let offlineAfter = 3;
 function statusText(s) {
-  if (s.state === "offline") return `Offline for ${span(s.offlineSince)} (since ${clock(s.offlineSince)}): ${s.error}`;
+  if (s.state === "offline") {
+    const how = `${span(s.offlineSince)} (since ${clock(s.offlineSince)}): ${s.error}`;
+    return s.likelyRestart ? `Possibly restarting, no answer for ${how}` : `Offline for ${how}`;
+  }
   if (s.failures) return `Query failing (${s.failures}/${offlineAfter}): ${s.error}`;
   return s.error ?? null;
 }
@@ -258,9 +264,10 @@ async function load() {
     cell(tr, s.info?.name ?? "—");
     cell(tr, `${s.host}:${s.queryPort}`);
     cell(tr, s.info?.map ?? "—");
-    cell(tr, s.state === "offline" ? "offline" : s.info ? `${s.info.players}/${s.info.maxPlayers}` : "—", s.state === "offline" ? "err" : "");
+    const dark = s.state === "offline";
+    cell(tr, dark ? (s.likelyRestart ? "restarting?" : "offline") : s.info ? `${s.info.players}/${s.info.maxPlayers}` : "—", dark ? (s.likelyRestart ? "warn" : "err") : "");
     const notifies = s.hasWebhook || data.defaultWebhook;
-    cell(tr, (statusText(s) ?? `ok, ${ago(s.checkedAt)}`) + (notifies ? "" : " · no webhook, not notifying"), s.error ? "err" : notifies ? "ok" : "muted");
+    cell(tr, (statusText(s) ?? `ok, ${ago(s.checkedAt)}`) + (notifies ? "" : " · no webhook, not notifying"), dark && s.likelyRestart ? "warn" : s.error ? "err" : notifies ? "ok" : "muted");
     const td = tr.insertCell();
     const btn = document.createElement("button");
     btn.textContent = "Remove";
@@ -464,7 +471,8 @@ function renderOverlay(s) {
   document.getElementById("ov-name").textContent = i?.name ?? `${s.host}:${s.queryPort}`;
   const offline = s.state === "offline";
   card.classList.toggle("offline", offline);
-  document.getElementById("ov-players").textContent = offline ? "offline" : i ? i.players : "—";
+  card.classList.toggle("restarting", offline && s.likelyRestart);
+  document.getElementById("ov-players").textContent = offline ? (s.likelyRestart ? "restarting?" : "offline") : i ? i.players : "—";
   document.getElementById("ov-max").textContent = offline ? "" : i ? `/ ${i.maxPlayers}` : "";
   const delta = document.getElementById("ov-delta");
   if (offline) {
@@ -499,7 +507,7 @@ function renderOverlay(s) {
   }
   const st = document.getElementById("ov-status");
   st.textContent = statusText(s) ?? `Last checked ${ago(s.checkedAt)}`;
-  st.className = s.error ? "err" : "muted";
+  st.className = offline && s.likelyRestart ? "muted" : s.error ? "err" : "muted"; // a restart isn't an error, so not red
 }
 
 function refreshOverlay(servers) {
