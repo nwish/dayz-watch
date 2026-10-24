@@ -24,6 +24,7 @@
   section { margin-top: 2rem; }
   section h2 { font-size: 1.05rem; }
   .inline { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
+  .inline input { flex: 1 1 12rem; min-width: 0; }
   td button { margin-right: .4rem; }
   button { cursor: pointer; }
   button:hover { border-color: #5865f2; }
@@ -63,6 +64,45 @@
     50% { border-color: #f85149; box-shadow: 0 0 0 10px rgba(248,81,73,.55), 0 0 90px 20px rgba(248,81,73,.7); }
   }
   @keyframes pop { 30% { transform: scale(1.25); } }
+  @media (max-width: 640px) {
+    body { margin: 1rem auto; }
+    input, select { font-size: 16px; } /* stops iOS zooming the page when a field is focused */
+    button, input, select { padding: .65rem .75rem; }
+    button { white-space: nowrap; }
+    header { flex-wrap: wrap; gap: .2rem .8rem; }
+    h1 { margin: .3rem 0; white-space: nowrap; }
+    nav { flex-wrap: wrap; gap: .5rem; }
+    nav #who { flex-basis: 100%; }
+    /* tables become stacked cards instead of scrolling sideways */
+    thead { display: none; }
+    table, tbody { display: block; }
+    #rows tr.clickable { display: grid; grid-template-columns: 1fr auto; grid-template-areas: "name name" "addr players" "map act" "status status"; gap: .25rem .8rem; padding: .8rem .2rem; border-bottom: 1px solid #2a2d33; align-items: center; }
+    #rows tr.clickable td { border: 0; padding: 0; }
+    #rows td:nth-child(1) { grid-area: name; font-weight: 600; overflow-wrap: anywhere; }
+    #rows td:nth-child(2) { grid-area: addr; color: #9aa0a6; overflow-wrap: anywhere; }
+    #rows td:nth-child(3) { grid-area: map; color: #9aa0a6; }
+    #rows td:nth-child(4) { grid-area: players; justify-self: end; font-weight: 700; font-size: 1.25rem; }
+    #rows td:nth-child(5) { grid-area: status; font-size: .85em; }
+    #rows td:nth-child(6) { grid-area: act; justify-self: end; }
+    #rows td button { margin: 0; }
+    #user-rows tr { display: grid; grid-template-columns: 1fr auto; grid-template-areas: "user role" "login login" "acts acts"; gap: .2rem .8rem; padding: .8rem .2rem; border-bottom: 1px solid #2a2d33; }
+    #user-rows td { border: 0; padding: 0; }
+    #user-rows td:nth-child(1) { grid-area: user; font-weight: 600; overflow-wrap: anywhere; }
+    #user-rows td:nth-child(2) { grid-area: role; justify-self: end; }
+    #user-rows td:nth-child(3) { grid-area: login; font-size: .85em; }
+    #user-rows td:nth-child(4) { grid-area: acts; display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .4rem; }
+    #user-rows td button { margin: 0; flex: 1 1 auto; }
+    /* forms stack one field per row */
+    #add { grid-template-columns: 1fr; }
+    .inline > * { flex: 1 1 100%; }
+    /* overlay */
+    .card { background: var(--art-sm, var(--art)); width: 94vw; padding: 1.2rem 1.1rem; }
+    #ov-players { font-size: 5.5rem; }
+    #ov-max { font-size: 1.8rem; }
+    .delta { font-size: 1.15rem; }
+    dl { gap: .35rem 1rem; }
+    .foot { flex-wrap: wrap; }
+  }
 </style>
 </head>
 <body>
@@ -222,9 +262,10 @@ const aurora = svgUrl("0 0 600 120", "<defs><filter id='b'><feGaussianBlur stdDe
 const starsUrl = svgUrl("0 0 600 200", Array.from({ length: 34 }, (_, k) => disc((k * 97 + 31) % 600, (k * 53 + 17) % 190, 0.9 + (k % 3) * 0.5, "#ffffff", 0.35 + (k % 4) * 0.18)).join(""));
 
 const TOP_RIGHT = "right 60px top 16px / 130px 130px no-repeat";
+const TOP_RIGHT_SM = "right 20px top 118px / 72px 72px no-repeat";
 const BOTTOM = "bottom / 100% 34% no-repeat";
 const STARS = [starsUrl, "top / 100% 55% no-repeat"];
-const accent = (url) => [url, TOP_RIGHT];
+const accent = (url) => [url, TOP_RIGHT, TOP_RIGHT_SM];
 const land = (body) => [svgUrl("0 0 600 200", body), BOTTOM];
 const grad = (a, b) => `linear-gradient(180deg,${a} 0%,${b} 100%)`;
 
@@ -337,7 +378,9 @@ function applyTheme(map, gameTime) {
   const t = THEMES[key][phase];
   card.dataset.theme = id;
   const set = (k, v) => overlay.style.setProperty(k, v);
-  set("--art", [...t.layers.map((l) => l.join(" ")), t.sky].join(", "));
+  const stack = (pick) => [...t.layers.map(pick), t.sky].join(", ");
+  set("--art", stack((l) => `${l[0]} ${l[1]}`));
+  set("--art-sm", stack((l) => `${l[0]} ${l[2] ?? l[1]}`)); // phones: smaller sun/moon so it doesn't sit behind the count
   set("--border", t.border);
   set("--text", t.text);
   set("--muted", t.muted);
