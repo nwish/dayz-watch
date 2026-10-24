@@ -113,3 +113,5 @@ To add a map, add an entry to `MAP_THEME` in `public/index.html` (and a new entr
 npm test                                   # node:test, no dependencies
 DISCORD_WEBHOOK_URL=... node src/server.js # data in ./data
 ```
+
+The look (palette, page background, header, form controls, stat cards) lives in `public/theme.css`, served at `/theme.css` without login so the login page can use it. Each page's own `<style>` keeps only its layout and page-specific components, and loads after the theme so it can override it; to restyle the app, change the variables at the top of `theme.css`. The server reads `public/` once at startup, so restart it to see edits.
