@@ -176,7 +176,7 @@ test("monitor: reports every finished poll to onSample, and a throwing recorder 
 });
 
 // Fake-clock harness: every tick() first advances 30 s, like a real poll interval.
-function outageHarness({ webhook = "https://default", offlineAfter = 3, rebootWindowMs = 0, notify, onOutage } = {}) {
+function outageHarness({ webhook = "https://default", offlineAfter = 3, rebootWindowMs = 0, pollMs = 30_000, recheckMs = 5_000, notify, onOutage, onSample } = {}) {
   let t = 0;
   let next;
   const posts = [];
@@ -189,17 +189,20 @@ function outageHarness({ webhook = "https://default", offlineAfter = 3, rebootWi
     defaultWebhook: webhook,
     offlineAfter,
     rebootWindowMs,
+    pollMs,
+    recheckMs,
+    onSample,
     onOutage,
     now: () => t,
   });
   const server = { id: "s1", host: "h", queryPort: 1, webhookUrl: null };
   m.track(server);
-  const tick = async (v) => {
-    t += 30_000;
+  const tick = async (v, advanceMs = 30_000) => {
+    t += advanceMs;
     next = v;
     await m.tick(server);
   };
-  return { m, posts, tick, status: () => m.status("s1") };
+  return { m, posts, tick, status: () => m.status("s1"), delay: () => m.nextPollDelay("s1") };
 }
 const down = () => new Error("query timeout");
 
@@ -367,6 +370,50 @@ test("monitor: only a server still down after the window is announced, once, wit
   await tick(info(0)); // 750 s: 11m30s after the first failure
   assert.equal(posts.length, 2);
   assert.match(posts[1], /back online\*\* after 11m: 0\/60 players/);
+});
+
+test("monitor: a server that isn't answering is rechecked quickly, then polled normally once it's clearly an outage", async () => {
+  const { tick, delay } = outageHarness({ rebootWindowMs: 10 * 60e3 });
+  await tick(info(5));
+  assert.equal(delay(), 30_000); // healthy: the normal rate
+  await tick(down());
+  assert.equal(delay(), 5_000); // one miss: look again soon
+  for (let i = 0; i < 18; i++) await tick(down()); // dark for 9 minutes: still inside the restart window
+  assert.equal(delay(), 5_000);
+  await tick(down());
+  await tick(down()); // dark for 10 minutes: an outage, no point polling it every 5 s
+  assert.equal(delay(), 30_000);
+  await tick(info(5));
+  assert.equal(delay(), 30_000);
+
+  const noWindow = outageHarness({ rebootWindowMs: 0 }); // restart window off: quick only until offlineAfter is reached
+  await noWindow.tick(info(5));
+  await noWindow.tick(down());
+  await noWindow.tick(down());
+  assert.equal(noWindow.delay(), 5_000);
+  await noWindow.tick(down());
+  assert.equal(noWindow.delay(), 30_000);
+  const slowRecheck = outageHarness({ recheckMs: 60_000 }); // a recheck is never slower than the normal rate
+  await slowRecheck.tick(down());
+  assert.equal(slowRecheck.delay(), 30_000);
+});
+
+test("monitor: a restart shorter than offlineAfter x pollMs is caught, timed from the first failed poll, and doesn't skew the history", async () => {
+  const samples = [];
+  const events = [];
+  const { posts, tick, status } = outageHarness({
+    rebootWindowMs: 10 * 60e3,
+    onSample: (server, sample) => samples.push(sample),
+    onOutage: (server, kind, at) => events.push([kind, at]),
+  });
+  await tick(info(20)); // 30 s
+  for (let i = 0; i < 3; i++) await tick(down(), 5_000); // 35 s, 40 s, 45 s
+  assert.deepEqual([status().state, status().likelyRestart], ["offline", true]); // 10 s of silence is enough: not 3 x 30 s
+  for (let i = 0; i < 10; i++) await tick(down(), 5_000); // rechecks every 5 s until 95 s
+  await tick(info(0), 5_000); // 100 s: answers again
+  assert.deepEqual(events, [["start", 35_000], ["end", 100_000]]); // a 65 s restart, to the second (the old rule never saw it)
+  assert.deepEqual(samples, [{ players: 20, maxPlayers: 60 }, null, null, null, { players: 0, maxPlayers: 60 }]); // 13 failed polls, 3 recorded
+  assert.deepEqual(posts, []); // and it is a restart, so Discord hears nothing
 });
 
 test("formatDuration is compact and rounds down to the largest useful unit", () => {

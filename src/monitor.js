@@ -39,14 +39,16 @@ export class Monitor {
   // query(host, port) -> {name,map,players,maxPlayers}; notify(url, content) -> Promise
   // onSample(server, {players,maxPlayers} | null): called once per finished poll (null = it failed).
   // offlineAfter: consecutive failed polls before a server counts as offline. now(): ms, injectable for tests.
+  // recheckMs: while a server isn't answering it is polled this often instead of every pollMs (see nextPollDelay).
   // rebootWindowMs: a normal restart takes a few minutes, so Discord is only told about a server that is still
   // down after this long (0 = tell it as soon as the server counts as offline).
   // onOutage(server, "start" | "end", atMs): an outage began (first failed poll) or ended (first answered poll).
-  constructor({ query, notify = postWebhook, defaultWebhook = null, pollMs = 30_000, onSample = null, onOutage = null, offlineAfter = 3, rebootWindowMs = 10 * 60e3, now = Date.now }) {
+  constructor({ query, notify = postWebhook, defaultWebhook = null, pollMs = 30_000, recheckMs = 5_000, onSample = null, onOutage = null, offlineAfter = 3, rebootWindowMs = 10 * 60e3, now = Date.now }) {
     this.query = query;
     this.notify = notify;
     this.defaultWebhook = defaultWebhook;
     this.pollMs = pollMs;
+    this.recheckMs = recheckMs;
     this.onSample = onSample;
     this.offlineAfter = offlineAfter;
     this.rebootWindowMs = rebootWindowMs;
@@ -88,6 +90,7 @@ export class Monitor {
       lastSeenAt: null, // last successful poll since this process started
       offlineSince: null,
       offlineNotified: false, // an "offline" alert went out, so a "back online" one is owed
+      lastFailSampleAt: 0, // when a failed poll was last written to the history (rechecks are throttled)
     };
     this.state.set(server.id, st);
     return st;
@@ -97,7 +100,7 @@ export class Monitor {
     const st = this.track(server);
     const loop = async () => {
       await this.tick(server);
-      if (!st.stopped) st.timer = setTimeout(loop, this.pollMs);
+      if (!st.stopped) st.timer = setTimeout(loop, this.nextPollDelay(server.id));
     };
     loop();
   }
@@ -108,6 +111,18 @@ export class Monitor {
     st.stopped = true;
     clearTimeout(st.timer);
     this.state.delete(id);
+  }
+
+  // Delay before the next poll. While a server isn't answering it is re-polled every recheckMs, so a restart
+  // is noticed within seconds and its length is measured to about that precision, instead of being rounded
+  // to the poll interval (a restart shorter than offlineAfter x pollMs would otherwise never be seen). The
+  // quick cadence only lasts while the downtime could still be a restart, or hasn't reached offlineAfter yet;
+  // after that a dead server is polled at the normal rate again.
+  nextPollDelay(id) {
+    const st = this.state.get(id);
+    if (!st || st.failures === 0) return this.pollMs;
+    const fast = st.failures < this.offlineAfter || this.now() - st.firstFailureAt < this.rebootWindowMs;
+    return fast ? Math.min(this.recheckMs, this.pollMs) : this.pollMs;
   }
 
   status(id) {
@@ -140,7 +155,12 @@ export class Monitor {
       st.checkedAt = ts();
       st.failures++;
       st.firstFailureAt ??= this.now();
-      this.#sample(server, null);
+      // Quick rechecks would weigh dark time several times heavier than normal time in the history (and in
+      // its "answered polls" share), so after the first failure only one failed poll per pollMs is recorded.
+      if (st.failures === 1 || this.now() - st.lastFailSampleAt >= this.pollMs) {
+        st.lastFailSampleAt = this.now();
+        this.#sample(server, null);
+      }
       if (st.failures >= this.offlineAfter) {
         if (st.state !== "offline") {
           st.state = "offline";
