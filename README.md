@@ -69,17 +69,18 @@ The list comes from the DZSA Launcher's public endpoint (`https://dayzsalauncher
 
 Every poll of every monitored server is recorded, and 90 days are kept (older data is pruned hourly). Each row in the server list has a **Stats** button that opens `/servers/<id>`:
 
-- **Summary cards:** current count, average, peak (and when), lowest, share of polls the server answered, and the busiest weekday + hour.
-- **Players over time:** average line with the min–max band for each period; red shading where the server didn't answer. Hover for exact values. Periods are 5 min (24 h), 30 min (7 days), 2 h (30 days) or 6 h (90 days).
+- **Summary cards:** current count (or *Restarting?* / *Offline*), average, peak (and when), lowest, share of polls the server answered, number of outages and restarts, and the busiest weekday + hour.
+- **Players over time:** average line with the min–max band for each period. The times the server was dark are shaded **amber for a normal restart and red for an outage**. Hover for exact values. Periods are 5 min (24 h), 30 min (7 days), 2 h (30 days) or 6 h (90 days).
 - **Daily trend:** average and peak per day (7 days and up).
 - **Busiest times:** a weekday × hour heatmap of average players (7 days and up), so you can see when a server fills up.
+- **Outages** and **Restarts:** two lists. A downtime shorter than `REBOOT_WINDOW_MINUTES` is a restart; a longer one is an outage. The restart section also says how many there were, how long they typically take, and the hours of the day they usually begin (when they recur), so a schedule like 04:00 / 10:00 / 16:00 / 22:00 shows up.
 
 Notes:
 
 - Polls are folded into 5-minute buckets (poll count, answered polls, sum/min/max players), so storage is about 26k small rows per server over 90 days whatever `POLL_SECONDS` is. Deleting a server deletes its history.
 - Days and the heatmap use the browser's timezone; one fixed UTC offset is applied to the whole range, so around a daylight-saving change the hours shift by one.
 - "Answered polls" counts only polls made while the container was running. Time the container was down is a gap in the charts, not downtime.
-- **Outages** (card and list on the stats page) are recorded with the monitor's exact times, from the first failed poll to the first answered one, and only once the server has been declared offline (`OFFLINE_AFTER` failed polls in a row), so shorter blips aren't listed. The length matches "Offline for ..." in the server list and the Discord "back online after ..." message. An outage still open when the app restarts is ended at the last moment it was being watched (the app can't see what happened while it was down), and a server that is still down starts a new outage after the restart. Only outages recorded since this feature was added are listed; earlier downtime still shows as red shading on the timeline.
+- **Downtime** is recorded with the monitor's exact times, from the first failed poll to the first answered one, and only once the server has been declared offline (`OFFLINE_AFTER` failed polls in a row), so shorter blips aren't listed. The length matches "Offline for ..." in the server list and the Discord "back online after ..." message. Restart or outage is decided when the page is read, from the length and the current `REBOOT_WINDOW_MINUTES`, so changing the setting re-sorts the history, and an ongoing downtime turns from restart into outage once it outlasts the window. A downtime still open when the app restarts is ended at the last moment it was being watched (the app can't see what happened while it was down), and a server that is still down starts a new one after the restart. Only downtime recorded since this feature was added is listed; earlier gaps still show as breaks in the line.
 - History starts when the server is added (or when you upgrade); there is no backfill. The page says how much of the selected window has been collected.
 - The database uses Node's built-in `node:sqlite` (no dependencies), which Node 22 still labels experimental; the start command silences that warning.
 
