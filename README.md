@@ -119,7 +119,3 @@ DISCORD_WEBHOOK_URL=... node src/server.js # data in ./data
 ```
 
 The look (palette, page background, header, form controls, stat cards) lives in `public/theme.css`, served at `/theme.css` without login so the login page can use it. Each page's own `<style>` keeps only its layout and page-specific components, and loads after the theme so it can override it; to restyle the app, change the variables at the top of `theme.css`. The server reads `public/` once at startup, so restart it to see edits.
-
-### Publishing the image
-
-Push a git tag like `v0.1.0` (the *Draft a new release* page can create it) and the *Publish image* workflow runs the tests, then builds and pushes `ghcr.io/<owner>/<repo>` for amd64 and arm64 with the tags `0.1.0`, `0.1`, `sha-<commit>` and `latest`. A pre-release tag such as `v0.2.0-rc1` gets only its own version and `sha-` tags, so `latest` and `0.2` stay put. Running the workflow by hand from the Actions tab pushes only `sha-<commit>`, so a test build never moves `latest` or a version tag.
