@@ -29,6 +29,15 @@
   section h2 { font-size: 1.05rem; }
   .row-actions { display: flex; flex-wrap: nowrap; align-items: stretch; justify-content: flex-end; gap: .4rem; white-space: nowrap; }
   .row-actions > * { margin: 0; }
+  .status-pill { position: relative; display: inline-flex; align-items: center; padding: .28rem .55rem; border: 1px solid currentColor; border-radius: 999px; background: var(--field); color: var(--dim); font-size: .78rem; font-weight: 600; line-height: 1; cursor: pointer; }
+  .status-pill.online { color: var(--ok); }
+  .status-pill.warning, .status-pill.restarting { color: var(--warn); }
+  .status-pill.offline { color: var(--err); }
+  .status-pill.checking { color: var(--hl); animation: status-pulse 1.2s ease-in-out infinite; }
+  .status-pill::after { content: attr(data-detail); position: absolute; z-index: 5; top: calc(100% + .45rem); left: 0; width: max-content; max-width: min(22rem, calc(100vw - 3rem)); padding: .45rem .55rem; border: 1px solid var(--hl); border-radius: 3px; background: var(--field); color: var(--fg); box-shadow: 0 6px 18px #000a; font: .8rem/1.35 system-ui; letter-spacing: normal; text-align: left; text-transform: none; white-space: normal; opacity: 0; pointer-events: none; transform: translateY(-.2rem); visibility: hidden; transition: opacity .15s ease, transform .15s ease, visibility .15s; }
+  .status-pill:hover::after, .status-pill:focus-visible::after, .status-pill.expanded::after { opacity: 1; transform: none; visibility: visible; }
+  @keyframes status-pulse { 50% { box-shadow: 0 0 0 .35rem rgba(163,184,108,.32); } }
+  @media (prefers-reduced-motion: reduce) { .status-pill.checking { animation: none; } }
   #msg { grid-column: 1 / -1; min-height: 1.2em; }
   #warn { color: var(--warn); }
   tr.clickable { cursor: pointer; }
@@ -197,6 +206,36 @@ function statusText(s) {
 }
 
 
+function statusPill(s, defaultWebhook) {
+  const notifies = s.hasWebhook || defaultWebhook;
+  const detail = (statusText(s) ?? (s.state === "unknown" ? "Waiting for first response." : `ok, ${ago(s.checkedAt)}`)) + (notifies ? "" : " · no webhook, not notifying");
+  let label = "Online";
+  let tone = "online";
+  if (s.state === "offline") {
+    label = s.likelyRestart ? "Restarting" : "Offline";
+    tone = s.likelyRestart ? "restarting" : "offline";
+  } else if (s.failures || s.state === "unknown") {
+    label = "Checking";
+    tone = "checking";
+  } else if (s.error) {
+    label = "Alert error";
+    tone = "warning";
+  }
+  const pill = document.createElement("button");
+  pill.type = "button";
+  pill.className = `status-pill ${tone}`;
+  pill.textContent = label;
+  pill.dataset.detail = detail;
+  pill.setAttribute("aria-label", `${label}: ${detail}`);
+  pill.setAttribute("aria-expanded", "false");
+  pill.onclick = (ev) => {
+    ev.stopPropagation();
+    const expanded = pill.classList.toggle("expanded");
+    pill.setAttribute("aria-expanded", String(expanded));
+  };
+  return pill;
+}
+
 // fetch wrapper: JSON in/out, and a lost session (401) sends the user to the login page.
 async function api(path, { method = "GET", body } = {}) {
   const r = await fetch(path, {
@@ -229,8 +268,8 @@ async function load() {
     cell(tr, s.info?.map ?? "—");
     const dark = s.state === "offline";
     cell(tr, dark ? (s.likelyRestart ? "restarting?" : "offline") : s.info ? `${s.info.players}/${s.info.maxPlayers}` : "—", dark ? (s.likelyRestart ? "warn" : "err") : "");
-    const notifies = s.hasWebhook || data.defaultWebhook;
-    cell(tr, (statusText(s) ?? `ok, ${ago(s.checkedAt)}`) + (notifies ? "" : " · no webhook, not notifying"), dark && s.likelyRestart ? "warn" : s.error ? "err" : notifies ? "ok" : "muted");
+    const status = tr.insertCell();
+    status.append(statusPill(s, data.defaultWebhook));
     const td = tr.insertCell();
     const btn = document.createElement("button");
     btn.textContent = "Remove";

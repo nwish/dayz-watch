@@ -49,6 +49,7 @@ The container needs outbound UDP to the query ports and outbound HTTPS to Discor
 - First reading after start or add is a silent baseline.
 - A post is sent only when the count differs from the previous successful reading, e.g. `**Name** (map): players 5 → **6**/60 (+1)`.
 - A failed query (timeout, DNS) is shown in the UI and is not treated as a change. A server restart shows as a drop to 0 and a climb back.
+- The server list uses compact state pills: **Online**, **Checking**, **Restarting**, **Offline**, or **Alert error**. *Checking* pulses; hover or tap a pill to read its full status message.
 
 ### Offline servers
 
