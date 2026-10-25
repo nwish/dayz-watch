@@ -65,7 +65,7 @@ A server is **offline** after `OFFLINE_AFTER` failed polls in a row; a single dr
 
 ## Finding servers to add
 
-The *Add server* form has a search box. Type part of a server name, number (e.g. `2305`), map, or IP (`85.190.157.254` or `ip:port`) and pick a result: it fills in the host and query port. All words you type must match; name-prefix matches rank first, then busier servers. Typing host and port by hand still works.
+The *+ Add server* button above the server list opens a form (a modal) with a search box. Type part of a server name, number (e.g. `2305`), map, or IP (`85.190.157.254` or `ip:port`) and pick a result: it fills in the host and query port. All words you type must match; name-prefix matches rank first, then busier servers. Typing host and port by hand still works.
 
 The list comes from the DZSA Launcher's public endpoint (`https://dayzsalauncher.com/api/v2/launcher/servers/dayz`, ~10k servers, no API key). BattleMetrics and the Steam Web API both need a paid or keyed account now, so they aren't used. The container downloads the list (~13 MB) on the first search, keeps a trimmed copy in memory, and refreshes it after 10 minutes. If a refresh fails it keeps serving the old list; if the very first download fails the search box shows an error and manual entry still works. This is a community endpoint with no SLA, and the container needs outbound HTTPS to it.
 

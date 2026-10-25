@@ -11,7 +11,14 @@
   body { --ctl-pad: .5rem .6rem; max-width: 900px; }
   table { margin-bottom: 1.5rem; }
   th { font-size: .8rem; }
-  #add { display: grid; grid-template-columns: 2fr 1fr; gap: .6rem; }
+  .toolbar { display: flex; justify-content: flex-end; margin-bottom: .8rem; }
+  .toolbar button { margin: 0; }
+  /* The add-server modal. overflow: visible lets the directory dropdown extend past the dialog's edge. */
+  #add-dialog { width: min(560px, calc(100% - 1.5rem)); box-sizing: border-box; padding: 0; overflow: visible; background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; }
+  #add-dialog::backdrop { background: rgba(0,0,0,.7); }
+  #add-dialog .dlg-body { position: relative; padding: 1.4rem 1.5rem; }
+  #add-dialog h2 { margin: 0 2.5rem 1rem 0; font-size: 1.1rem; }
+  #add { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
   #add input[name=webhookUrl] { grid-column: 1 / -1; }
   .combo { grid-column: 1 / -1; position: relative; }
   .combo input { width: 100%; box-sizing: border-box; }
@@ -132,23 +139,29 @@
     <button id="logout">Log out</button>
   </nav>
 </header>
+<div class="toolbar"><button id="add-open" type="button">+ Add server</button></div>
 <table>
   <thead><tr><th>Server</th><th>Address</th><th>Map</th><th>Players</th><th>Status</th><th></th></tr></thead>
   <tbody id="rows"><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
 </table>
 
-<h2 style="font-size:1.05rem">Add server</h2>
-<form id="add">
-  <div class="combo">
-    <input id="dir-q" type="search" placeholder="Search public servers by name, map, number or IP (or fill in the fields below)" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="dir-list" aria-autocomplete="list">
-    <ul id="dir-list" role="listbox" hidden></ul>
+<dialog id="add-dialog" aria-labelledby="add-title">
+  <div class="dlg-body">
+    <button id="add-close" type="button" class="close" aria-label="Close">×</button>
+    <h2 id="add-title">Add server</h2>
+    <form id="add">
+      <div class="combo">
+        <input id="dir-q" type="search" placeholder="Search public servers by name, map, number or IP (or fill in the fields below)" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="dir-list" aria-autocomplete="list">
+        <ul id="dir-list" role="listbox" hidden></ul>
+      </div>
+      <input name="host" placeholder="Host or IP, e.g. 85.190.157.254" required>
+      <input name="queryPort" type="number" min="1" max="65535" placeholder="Query port (game port + 1)" required>
+      <input name="webhookUrl" id="webhook" placeholder="Discord webhook URL (optional; blank = monitor only unless a default is set)" autocomplete="off">
+      <button type="submit">Add</button>
+      <span id="msg"></span>
+    </form>
   </div>
-  <input name="host" placeholder="Host or IP, e.g. 85.190.157.254" required>
-  <input name="queryPort" type="number" min="1" max="65535" placeholder="Query port (game port + 1)" required>
-  <input name="webhookUrl" id="webhook" placeholder="Discord webhook URL (optional; blank = monitor only unless a default is set)" autocomplete="off">
-  <button type="submit">Add</button>
-  <span id="msg"></span>
-</form>
+</dialog>
 
 <section id="panel-account" hidden>
   <h2>Account</h2>
@@ -601,10 +614,28 @@ document.getElementById("add").addEventListener("submit", async (e) => {
     method: "POST",
     body: { host: f.host.value, queryPort: f.queryPort.value, webhookUrl: f.webhookUrl.value },
   });
-  msg.textContent = ok ? "Added." : data.error;
-  msg.className = ok ? "ok" : "err";
-  if (ok) f.reset();
+  if (ok) {
+    f.reset();
+    addDialog.close();
+  } else {
+    msg.textContent = data.error;
+    msg.className = "err";
+  }
   load();
+});
+
+// ---- Add-server modal ----
+const addDialog = document.getElementById("add-dialog");
+document.getElementById("add-open").onclick = () => {
+  addForm.reset();
+  msg.textContent = "";
+  dirClose();
+  addDialog.showModal();
+  dirQ.focus();
+};
+document.getElementById("add-close").onclick = () => addDialog.close();
+addDialog.addEventListener("click", (e) => {
+  if (e.target === addDialog) addDialog.close(); // a click on the backdrop
 });
 
 // ---- Server directory autocomplete ----
