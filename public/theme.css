@@ -38,6 +38,7 @@ nav { display: flex; gap: .6rem; align-items: center; }
 /* Form controls and link buttons. A page sets --ctl-pad to change the padding. */
 input, button, select, a.btn { font: inherit; padding: var(--ctl-pad, .5rem .8rem); background: var(--field); color: inherit; border: 1px solid var(--line); border-radius: 3px; }
 a.btn { text-decoration: none; display: inline-block; }
+[hidden] { display: none !important; } /* author display rules (a.btn) would otherwise beat the UA's [hidden] */
 button { cursor: pointer; }
 button:hover, a.btn:hover { border-color: var(--hl); }
 button:disabled { opacity: .5; cursor: default; }
