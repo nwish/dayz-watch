@@ -29,7 +29,8 @@ export async function postWebhook(url, content) {
   const r = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ content }),
+    // Server names come from the game server, so they must never be able to ping @everyone or a role.
+    body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
     signal: AbortSignal.timeout(10_000),
   });
   if (!r.ok) throw new Error(`webhook ${r.status} ${await r.text()}`);
