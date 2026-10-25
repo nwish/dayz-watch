@@ -11,8 +11,16 @@
   body { --ctl-pad: .5rem .6rem; max-width: 900px; }
   table { margin-bottom: 1.5rem; }
   th { font-size: .8rem; }
-  .toolbar { display: flex; justify-content: flex-end; margin-bottom: .8rem; }
-  .toolbar button { margin: 0; }
+  .toolbar { display: flex; align-items: center; gap: .8rem; margin-bottom: .8rem; }
+  .toolbar > button { margin: 0; flex: none; }
+  #monbar { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: .15rem 1rem; padding: .45rem .7rem; background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--dim); border-radius: 3px; font-size: .82rem; color: var(--dim); }
+  #monbar[data-tone=ok] { border-left-color: var(--ok); }
+  #monbar[data-tone=warn] { border-left-color: var(--warn); }
+  #monbar[data-tone=err] { border-left-color: var(--err); }
+  #monbar .head { font-weight: 600; color: var(--fg); }
+  #monbar .ok { color: var(--ok); }
+  #monbar .warn { color: var(--warn); }
+  #monbar .err { color: var(--err); }
   /* The add-server modal. overflow: visible lets the directory dropdown extend past the dialog's edge. */
   #add-dialog { width: min(560px, calc(100% - 1.5rem)); box-sizing: border-box; padding: 0; overflow: visible; background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; }
   #add-dialog::backdrop { background: rgba(0,0,0,.7); }
@@ -96,6 +104,9 @@
   }
   @keyframes pop { 30% { transform: scale(1.25); } }
   @media (max-width: 640px) {
+    .toolbar { flex-wrap: wrap; }
+    #monbar { flex-basis: 100%; order: 2; }
+    .toolbar > button { margin-left: auto; }
     button, input, select, a.btn { padding: .65rem .75rem; }
     button, a.btn { white-space: nowrap; }
     header { flex-wrap: wrap; gap: .2rem .8rem; }
@@ -139,7 +150,10 @@
     <button id="logout">Log out</button>
   </nav>
 </header>
-<div class="toolbar"><button id="add-open" type="button">+ Add server</button></div>
+<div class="toolbar">
+  <div id="monbar" role="status" aria-live="off"><span class="head">Loading…</span></div>
+  <button id="add-open" type="button">+ Add server</button>
+</div>
 <table>
   <thead><tr><th>Server</th><th>Address</th><th>Map</th><th>Players</th><th>Status</th><th></th></tr></thead>
   <tbody id="rows"><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
@@ -265,9 +279,66 @@ async function api(path, { method = "GET", body } = {}) {
   return { ok: r.ok, status: r.status, data: await r.json().catch(() => ({})) };
 }
 
+// "30s", "90s", "5m", "1h 30m" for a whole number of seconds.
+function secs(n) {
+  if (n < 120) return `${n}s`;
+  const m = Math.round(n / 60);
+  return m < 120 ? `${m}m` : `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ""}`;
+}
+
+// The status bar above the list: what the watcher is doing and how it is configured.
+const monbar = document.getElementById("monbar");
+function renderMonitor(data) {
+  const list = data.servers;
+  const n = (pred) => list.filter(pred).length;
+  const offline = n((s) => s.state === "offline" && !s.likelyRestart);
+  const restarting = n((s) => s.state === "offline" && s.likelyRestart);
+  const checking = n((s) => s.state !== "offline" && (s.failures || s.state === "unknown"));
+  const online = list.length - offline - restarting - checking;
+  const fast = list.some((s) => s.failures > 0 && (s.state !== "offline" || s.likelyRestart)); // quick rechecks are running
+  const alerting = n((s) => s.hasWebhook || data.defaultWebhook);
+  const lastCheck = list.reduce((a, s) => (s.checkedAt && (!a || s.checkedAt > a) ? s.checkedAt : a), null);
+
+  const parts = [];
+  const add = (count, text, cls) => count && parts.push([`${count} ${text}`, cls]);
+  add(online, "online", "ok");
+  add(checking, "checking", "warn");
+  add(restarting, "restarting?", "warn");
+  add(offline, "offline", "err");
+
+  const items = [];
+  const head = document.createElement("span");
+  head.className = "head";
+  if (!list.length) {
+    head.textContent = "Monitoring idle";
+    items.push(head, "Add a server to start polling");
+  } else {
+    head.textContent = `Monitoring ${list.length} server${list.length === 1 ? "" : "s"}`;
+    const counts = document.createElement("span");
+    parts.forEach(([text, cls], i) => {
+      const part = document.createElement("span");
+      part.className = cls;
+      part.textContent = text;
+      counts.append(i ? " · " : "", part);
+    });
+    items.push(head, counts);
+    items.push(`Polling every ${secs(data.pollSeconds)}${fast ? `, rechecking every ${secs(data.recheckSeconds)}` : ""}`);
+    items.push(`Last check ${lastCheck ? ago(lastCheck) : "pending"}`);
+    items.push(`Offline after ${data.offlineAfter} failed polls`);
+    if (data.rebootWindowMinutes > 0) items.push(`Restart window ${secs(data.rebootWindowMinutes * 60)}`);
+    const alertText = document.createElement("span");
+    alertText.textContent = alerting === list.length ? "Discord alerts on" : alerting ? `Discord alerts on for ${alerting}/${list.length}` : "Discord alerts off";
+    if (alerting < list.length) alertText.className = "warn";
+    items.push(alertText);
+  }
+  monbar.dataset.tone = !list.length ? "" : offline ? "err" : restarting || checking ? "warn" : "ok";
+  monbar.replaceChildren(...items.map((it) => (typeof it === "string" ? Object.assign(document.createElement("span"), { textContent: it }) : it)));
+}
+
 async function load() {
   const { data } = await api("/api/servers");
   offlineAfter = data.offlineAfter ?? offlineAfter;
+  renderMonitor(data);
   const currentIds = new Set(data.servers.map((s) => s.id));
   for (const id of seenChecks.keys()) if (!currentIds.has(id)) seenChecks.delete(id);
   rows.replaceChildren();

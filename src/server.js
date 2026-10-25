@@ -261,7 +261,14 @@ async function api(req, res, url, session) {
 
   // ---- servers (any signed-in user) ----
   if (method === "GET" && pathname === "/api/servers") {
-    return reply(res, 200, { defaultWebhook: Boolean(DEFAULT_WEBHOOK), offlineAfter: OFFLINE_AFTER, servers: store.list().map(serverView) });
+    return reply(res, 200, {
+      defaultWebhook: Boolean(DEFAULT_WEBHOOK),
+      offlineAfter: OFFLINE_AFTER,
+      pollSeconds: POLL_MS / 1000,
+      recheckSeconds: Math.min(RECHECK_MS, POLL_MS) / 1000,
+      rebootWindowMinutes: REBOOT_S / 60,
+      servers: store.list().map(serverView),
+    });
   }
   const statsReq = method === "GET" && /^\/api\/servers\/([\w-]+)\/stats$/.exec(pathname);
   if (statsReq) {

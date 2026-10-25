@@ -49,6 +49,7 @@ The container needs outbound UDP to the query ports and outbound HTTPS to Discor
 
 ## Behaviour
 
+- **Status bar:** above the server list, a one-line summary: how many servers are online, checking, restarting? or offline, the polling cadence (`POLL_SECONDS`, plus the `RECHECK_SECONDS` rate while a server is failing), when the last check ran, the `OFFLINE_AFTER` and `REBOOT_WINDOW_MINUTES` rules, and how many servers have Discord alerts (a per-server webhook or the default). Its left edge is green, amber (checking/restarting) or red (offline).
 - First reading after start or add is a silent baseline.
 - A post is sent only when the count differs from the previous successful reading, e.g. `**Name** (map): players 5 → **6**/60 (+1)`.
 - A failed query (timeout, DNS) is shown in the UI and is not treated as a change. A server restart shows as a drop to 0 and a climb back.

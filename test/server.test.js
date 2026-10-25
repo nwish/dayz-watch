@@ -216,6 +216,7 @@ test("stats: API and page require login, validate input, 404 unknown servers, an
   assert.deepEqual([ok.json.downtime.intervals, ok.json.downtime.outages.count, ok.json.downtime.reboots.count], [[], 0, 0]);
   const listed = await c.call("GET", "/api/servers");
   assert.equal(listed.json.offlineAfter, 3);
+  assert.deepEqual([listed.json.pollSeconds, listed.json.recheckSeconds, listed.json.rebootWindowMinutes], [30, 5, 10]); // the defaults
   const view = listed.json.servers.find((s) => s.id === id);
   assert.ok(["unknown", "online", "offline"].includes(view.state) && Number.isInteger(view.failures));
   assert.equal("ping" in view, false);
