@@ -19,6 +19,7 @@ Open `http://<host>:8080` and sign in. Everything else (servers, users) is manag
 |---|---|---|
 | `ADMIN_USERNAME` | `admin` | Username of the first admin. Only used while no users exist. |
 | `ADMIN_PASSWORD` | generated | Password of the first admin (10-128 chars). Only used while no users exist; if empty, a random one is printed once in the container log. |
+| `AUTH_DISABLED` | `false` | Set `true` only on a trusted network to bypass login. Every visitor becomes the built-in `local` admin; existing accounts are ignored until it is disabled again. |
 | `TRUST_PROXY` | `false` | Set `true` behind a reverse proxy: the client IP for rate limiting is taken from the last `X-Forwarded-For` entry (the one your proxy appended), and `X-Forwarded-Proto`/`-Host` are honoured. Only enable it if the container is reachable *only* through that proxy, otherwise clients can spoof their IP. |
 | `COOKIE_SECURE` | `false` | Mark the session cookie `Secure`. Set `true` when served over HTTPS (implied by `TRUST_PROXY=true` when the proxy sends `X-Forwarded-Proto: https`). |
 | `DISCORD_WEBHOOK_URL` | unset | Default webhook, used by servers added without their own. Optional: with no webhook at all, servers are still monitored in the UI but nothing is posted. |
@@ -35,6 +36,7 @@ The container needs outbound UDP to the query ports and outbound HTTPS to Discor
 
 ## Accounts and login
 
+- `AUTH_DISABLED=true` skips account bootstrap, session checks, and the login page. Every request has the `local` admin identity. Use it only on a trusted LAN or behind separate access control; it makes every app API—including server and user management—public to anyone who can reach the app.
 - Sessions are server-side, in an `HttpOnly`, `SameSite=Strict` cookie; they expire after 12 h idle or 7 days total and are lost when the container restarts.
 - **Roles:** `admin` can do everything including the admin page; `user` can view and manage servers but not users.
 - **Admin page (`/admin`, admins only; linked as *Admin* in the header):** manage users and see database statistics. Users: add, make/unmake admin, reset passwords, delete. Resetting a password or deleting a user signs that user out immediately. You can't delete yourself or change your own role, and the last admin can't be demoted or deleted. Non-admins who open `/admin` are sent back to the server list.

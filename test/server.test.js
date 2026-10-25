@@ -262,6 +262,52 @@ test("admin: page and overview API are admin-only and never leak credentials", a
   assert.match(page.text, /Database/);
 });
 
+test("AUTH_DISABLED bypasses login with an implicit local admin without weakening origin checks", async () => {
+  const disabledDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "dw-no-auth-"));
+  const port = await freePort();
+  const disabledBase = `http://127.0.0.1:${port}`;
+  const disabled = spawn("node", ["src/server.js"], {
+    env: { ...process.env, PORT: String(port), DATA_DIR: disabledDataDir, AUTH_DISABLED: "true" },
+    stdio: ["ignore", "pipe", "inherit"],
+  });
+  try {
+    await new Promise((resolve, reject) => {
+      disabled.on("exit", (c) => reject(new Error(`disabled-auth server exited ${c}`)));
+      disabled.stdout.on("data", (d) => String(d).includes("listening") && resolve());
+    });
+    const call = (method, url, body, headers = {}) => fetch(disabledBase + url, {
+      method,
+      redirect: "manual",
+      headers: { ...(body ? { "content-type": "application/json" } : {}), ...headers },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    const root = await call("GET", "/");
+    assert.equal(root.status, 200);
+
+    const login = await call("GET", "/login");
+    assert.deepEqual([login.status, login.headers.get("location")], [302, "/"]);
+    assert.equal((await call("POST", "/api/login", { username: "admin", password: ADMIN_PW })).status, 409);
+
+    const me = await call("GET", "/api/me");
+    assert.deepEqual(await me.json(), { username: "local", role: "admin", authDisabled: true });
+    assert.deepEqual(me.headers.getSetCookie(), []);
+    assert.equal((await call("GET", "/admin")).status, 200);
+    assert.equal((await call("GET", "/api/users")).status, 200);
+    assert.equal((await call("GET", "/api/admin/overview")).status, 200);
+    assert.equal((await call("POST", "/api/servers", { host: "127.0.0.1", queryPort: 9 }, { origin: "http://evil.example" })).status, 403);
+
+    const added = await call("POST", "/api/servers", { host: "127.0.0.1", queryPort: 9 });
+    assert.equal(added.status, 201);
+    assert.equal((await call("DELETE", `/api/servers/${(await added.clone().json()).id}`)).status, 200);
+  } finally {
+    const exited = new Promise((resolve) => disabled.once("exit", resolve));
+    disabled.kill();
+    await exited;
+    fs.rmSync(disabledDataDir, { recursive: true, force: true });
+  }
+});
+
 test("theme.css needs no login (the login page uses it), is served as CSS, and revalidates by ETag", async () => {
   const first = await fetch(`${base}/theme.css`);
   assert.equal(first.status, 200);

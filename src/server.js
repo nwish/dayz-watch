@@ -22,6 +22,8 @@ const DEFAULT_WEBHOOK = process.env.DISCORD_WEBHOOK_URL || null;
 const directory = new Directory({ url: process.env.DIRECTORY_URL || DEFAULT_DIRECTORY_URL });
 const TRUST_PROXY = process.env.TRUST_PROXY === "true";
 const COOKIE_SECURE = process.env.COOKIE_SECURE === "true";
+const AUTH_DISABLED = process.env.AUTH_DISABLED === "true";
+const AUTH_DISABLED_USER = Object.freeze({ username: "local", role: "admin" });
 const COOKIE_NAME = "dw_session";
 const page = (name) => fs.readFileSync(fileURLToPath(new URL(`../public/${name}`, import.meta.url)));
 const INDEX_HTML = page("index.html");
@@ -44,17 +46,21 @@ setInterval(() => {
   userLimiter.sweep();
 }, 60_000).unref();
 
-const generated = await bootstrapAdmin(users, {
-  username: process.env.ADMIN_USERNAME,
-  password: process.env.ADMIN_PASSWORD,
-});
-if (generated) {
-  console.log("================================================================");
-  console.log(" No users existed: created admin account.");
-  console.log(`   username: ${process.env.ADMIN_USERNAME || "admin"}`);
-  console.log(`   password: ${generated}`);
-  console.log(" This is shown once. Change it after logging in.");
-  console.log("================================================================");
+if (AUTH_DISABLED) {
+  console.warn("Authentication is disabled (AUTH_DISABLED=true); do not expose dayz-watch to untrusted networks.");
+} else {
+  const generated = await bootstrapAdmin(users, {
+    username: process.env.ADMIN_USERNAME,
+    password: process.env.ADMIN_PASSWORD,
+  });
+  if (generated) {
+    console.log("================================================================");
+    console.log(" No users existed: created admin account.");
+    console.log(`   username: ${process.env.ADMIN_USERNAME || "admin"}`);
+    console.log(`   password: ${generated}`);
+    console.log(" This is shown once. Change it after logging in.");
+    console.log("================================================================");
+  }
 }
 
 const stats = new Stats(path.join(DATA_DIR, "stats.db"), { rebootSeconds: REBOOT_S });
@@ -226,14 +232,16 @@ async function api(req, res, url, session) {
     if (me.role !== "admin") throw new AuthError("admin only", 403);
   };
 
-  if (method === "GET" && pathname === "/api/me") return reply(res, 200, { username: me.username, role: me.role });
+  if (method === "GET" && pathname === "/api/me") return reply(res, 200, { username: me.username, role: me.role, ...(AUTH_DISABLED ? { authDisabled: true } : {}) });
 
   if (method === "POST" && pathname === "/api/logout") {
+    if (AUTH_DISABLED) return reply(res, 200, { ok: true });
     sessions.destroy(session.token);
     return reply(res, 200, { ok: true }, "application/json", { "set-cookie": sessionCookie(req, "", 0) });
   }
 
   if (method === "POST" && pathname === "/api/me/password") {
+    if (AUTH_DISABLED) throw new AuthError("authentication is disabled", 409);
     const { currentPassword, newPassword } = await readJson(req);
     const key = `pw:${me.username}`;
     const wait = userLimiter.retryAfter(key);
@@ -344,12 +352,20 @@ const server = http.createServer(async (req, res) => {
     if (req.method !== "GET" && req.method !== "HEAD" && !sameOrigin(req)) {
       return reply(res, 403, { error: "cross-origin request blocked" });
     }
-    if (req.method === "POST" && pathname === "/api/login") return await login(req, res);
+    if (req.method === "POST" && pathname === "/api/login") {
+      if (AUTH_DISABLED) return reply(res, 409, { error: "authentication is disabled" });
+      return await login(req, res);
+    }
 
-    const token = parseCookies(req)[COOKIE_NAME];
-    const s = sessions.get(token);
-    const user = s && users.get(s.username);
-    const session = user ? { token, user } : null;
+    let session = null;
+    if (AUTH_DISABLED) {
+      session = { token: null, user: AUTH_DISABLED_USER };
+    } else {
+      const token = parseCookies(req)[COOKIE_NAME];
+      const s = sessions.get(token);
+      const user = s && users.get(s.username);
+      if (user) session = { token, user };
+    }
 
     if (req.method === "GET" && pathname === "/login") {
       return session ? redirect(res, "/") : reply(res, 200, LOGIN_HTML, "text/html; charset=utf-8");
@@ -374,7 +390,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`dayz-watch listening on :${PORT}, ${store.list().length} server(s), ${users.count()} user(s), poll ${POLL_MS / 1000}s`);
-  if (!COOKIE_SECURE && !TRUST_PROXY) console.warn("Session cookie is not marked Secure (set COOKIE_SECURE=true when serving over HTTPS)");
+  if (!AUTH_DISABLED && !COOKIE_SECURE && !TRUST_PROXY) console.warn("Session cookie is not marked Secure (set COOKIE_SECURE=true when serving over HTTPS)");
 });
 
 for (const sig of ["SIGINT", "SIGTERM"]) {

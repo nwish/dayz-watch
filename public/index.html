@@ -735,8 +735,10 @@ $("pw-form").addEventListener("submit", async (e) => {
 
 (async () => {
   me = (await api("/api/me")).data;
-  $("who").textContent = `${me.username} (${me.role})`;
+  $("who").textContent = me.authDisabled ? "auth disabled" : `${me.username} (${me.role})`;
   $("pw-form").username.value = me.username; // lets password managers update the right entry
+  $("acct-btn").hidden = me.authDisabled;
+  $("logout").hidden = me.authDisabled;
   $("admin-link").hidden = me.role !== "admin";
   load();
   setInterval(load, 1000);
