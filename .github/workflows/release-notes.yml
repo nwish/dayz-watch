@@ -1,0 +1,70 @@
+name: Draft release notes
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to generate notes for
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: release-notes-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  notes:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      # Keep the generator/config on the workflow branch for older release tags.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          path: generator
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+          path: source
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff@2.14.2
+      - name: Generate combined notes
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git-cliff --config ../generator/cliff.toml --offline --latest --context > context.json
+          python3 ../generator/scripts/release-notes.py < context.json > combined.json
+          git-cliff --config ../generator/cliff.toml --offline --from-context combined.json > notes.md
+          cat notes.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Create or update draft
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Listing succeeds or fails explicitly; an API error is not treated as a missing release.
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | {tag_name, draft}' > releases.jsonl
+          existing=$(jq -s --arg tag "$RELEASE_TAG" 'map(select(.tag_name == $tag)) | first // null' releases.jsonl)
+          if [[ "$existing" != null ]]; then
+            if [[ $(jq -r '.draft' <<< "$existing") != true ]]; then
+              echo "Release is already published; leaving its notes untouched."
+              exit 0
+            fi
+            gh release edit "$RELEASE_TAG" --notes-file notes.md
+          else
+            flags=()
+            if [[ "$RELEASE_TAG" == *-* ]]; then flags+=(--prerelease); fi
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "dayz-watch $RELEASE_TAG" --notes-file notes.md "${flags[@]}"
+          fi

@@ -1,0 +1,20 @@
+[changelog]
+header = ""
+body = """
+## What's Changed
+{% for commit in commits %}\
+- {{ commit.message | split(pat="\n") | first | trim }} {% if commit.extra.pr_number %}([#{{ commit.extra.pr_number }}](https://github.com/{{ commit.extra.repository }}/pull/{{ commit.extra.pr_number }})){% else %}([{{ commit.id | truncate(length=7, end="") }}](https://github.com/{{ commit.extra.repository }}/commit/{{ commit.id }})){% endif %}
+{% endfor %}
+{% if previous.version and version %}\
+**Full changelog:** https://github.com/nwish/dayz-watcher/compare/{{ previous.version }}...{{ version }}
+{% endif %}
+"""
+trim = true
+
+[git]
+# Existing plain-English messages are welcome; no commit convention required.
+conventional_commits = false
+filter_unconventional = false
+split_commits = false
+tag_pattern = '^v[0-9]+\.[0-9]+\.[0-9]+.*$'
+sort_commits = "oldest"
