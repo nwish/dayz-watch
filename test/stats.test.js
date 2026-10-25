@@ -186,7 +186,7 @@ test("downtime keeps the monitor's exact times, splits restarts from outages by 
   });
 });
 
-test("a short downtime that ends with players online is an outage, not a restart (a restarted server comes back empty)", () => {
+test("a short downtime that ends with players online is a blip: neither a restart nor an outage", () => {
   const { s } = harness({ rebootSeconds: 300 });
   s.outageStart("a", T0 - 3000);
   s.outageEnd("a", T0 - 2900, 0); // back empty: a restart
@@ -194,9 +194,11 @@ test("a short downtime that ends with players online is an outage, not a restart
   s.outageEnd("a", T0 - 1900, 12); // back with 12 players: only the monitor lost contact
   s.outageStart("a", T0 - 1000);
   s.outageEnd("a", T0 - 900); // players unknown (older row): judged on length alone
+  s.outageStart("a", T0 - 800);
+  s.outageEnd("a", T0 - 800 + 600, 5); // as long as the window with players back: still an outage
   const d = s.query("a", "24h").downtime;
-  assert.deepEqual(d.intervals.map((i) => i.kind), ["reboot", "outage", "reboot"]);
-  assert.deepEqual([d.reboots.count, d.outages.count], [2, 1]);
+  assert.deepEqual(d.intervals.map((i) => i.kind), ["reboot", "blip", "reboot", "outage"]);
+  assert.deepEqual([d.reboots.count, d.outages.count], [2, 1]); // the blip is in neither
 });
 
 test("an existing database without outages.players_after is upgraded in place", async () => {

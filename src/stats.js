@@ -198,13 +198,15 @@ export class Stats {
     // messages, and is classified by length: shorter than the restart window is a normal restart, anything
     // longer an outage. Classifying on read means changing REBOOT_WINDOW_MINUTES re-sorts the history.
     // An ongoing interval runs to now (and turns from restart into outage once it outlasts the window).
-    // A short one that ended with players already online wasn't a restart either (a restarted server comes
-    // back empty), so it counts as an outage. Unknown (still ongoing, or recorded before players_after) is judged on length alone.
+    // A short one that ended with players already online wasn't a restart (a restarted server comes back
+    // empty) but isn't an outage either: the server stayed up and only the monitor lost contact, a "blip".
+    // Unknown (still ongoing, or recorded before players_after) is judged on length alone.
     const now = Math.floor(this.now());
     const intervals = all("SELECT started, ended, players_after FROM outages WHERE server_id = ?1 AND (ended IS NULL OR ended >= ?2) ORDER BY started", serverId, from).map((o) => {
       const to = o.ended ?? now;
-      const restarted = to - o.started < this.rebootSeconds && !(o.players_after > 0);
-      return { from: o.started, to, ongoing: o.ended === null, kind: restarted ? "reboot" : "outage" };
+      const short = to - o.started < this.rebootSeconds;
+      const kind = !short ? "outage" : o.players_after > 0 ? "blip" : "reboot";
+      return { from: o.started, to, ongoing: o.ended === null, kind };
     });
     const clipped = (i) => Math.max(0, i.to - Math.max(i.from, from)); // totals count only the part inside the range
     const outs = intervals.filter((i) => i.kind === "outage");
@@ -224,7 +226,7 @@ export class Stats {
       .slice(0, 8);
     const downtime = {
       rebootSeconds: this.rebootSeconds,
-      intervals, // oldest first; { from, to, ongoing, kind: "reboot" | "outage" }
+      intervals, // oldest first; { from, to, ongoing, kind: "reboot" | "outage" | "blip" }; blips are in neither count below
       outages: {
         count: outs.length,
         totalSeconds: Math.round(outs.reduce((a, i) => a + clipped(i), 0)),

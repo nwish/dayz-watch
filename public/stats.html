@@ -93,6 +93,7 @@
     <span><i style="background:rgba(163,184,108,.25)"></i>min&ndash;max in period</span>
     <span><i style="background:rgba(224,164,60,.6)"></i><span id="legend-restart">restart</span></span>
     <span><i style="background:rgba(229,105,91,.5)"></i>outage</span>
+    <span><i style="background:var(--dim);opacity:.5"></i>lost contact (server stayed up)</span>
     <span id="res"></span>
   </div>
 </section>
@@ -284,7 +285,8 @@ function drawTimeline(d) {
     const x0 = Math.max(m.l, x(i.from));
     const x1 = Math.min(W - m.r, x(i.to));
     if (x1 < x0) continue;
-    svg.append(s("rect", { x: x0, y: m.t, width: Math.max(2, x1 - x0), height: ph, fill: i.kind === "outage" ? "var(--err)" : "var(--warn)", opacity: i.kind === "outage" ? ".3" : ".4" }));
+    const shade = { outage: ["var(--err)", ".3"], reboot: ["var(--warn)", ".4"], blip: ["var(--dim)", ".3"] }[i.kind];
+    svg.append(s("rect", { x: x0, y: m.t, width: Math.max(2, x1 - x0), height: ph, fill: shade[0], opacity: shade[1] }));
   }
 
   // Contiguous runs of answered periods: a gap in the data (container down) breaks the line.
