@@ -74,7 +74,7 @@ The list comes from the DZSA Launcher's public endpoint (`https://dayzsalauncher
 
 ## Statistics
 
-Every poll of every monitored server is recorded, and 90 days are kept (older data is pruned hourly). Each row in the server list has a **Stats** button that opens `/servers/<id>`:
+Every poll of every monitored server is recorded, and 90 days are kept (older data is pruned hourly). Each row in the server list has a **Stats** button that opens `/servers/<id>`, showing the last 12 hours by default (pick another period with the buttons, or `?range=1h|12h|24h|7d|30d|90d`):
 
 - **Summary cards:** current count (or *Restarting?* / *Offline*), average, peak (and when), lowest, share of polls the server answered, number of outages and restarts, and the busiest weekday + hour.
 - **Players over time:** average line with the min–max band for each period. The times the server was dark are shaded **amber for a normal restart and red for an outage**. Hover for exact values. Periods are 5 min (1 h, 12 h and 24 h), 30 min (7 days), 2 h (30 days) or 6 h (90 days).

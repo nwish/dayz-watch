@@ -131,7 +131,7 @@ const id = location.pathname.split("/").pop();
 const tz = -new Date().getTimezoneOffset(); // minutes east of UTC
 const RANGES = ["1h", "12h", "24h", "7d", "30d", "90d"];
 let range = new URLSearchParams(location.search).get("range");
-if (!RANGES.includes(range)) range = "7d";
+if (!RANGES.includes(range)) range = "12h";
 let data = null;
 
 const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
