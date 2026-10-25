@@ -41,7 +41,7 @@ jobs:
       contents: read
       packages: write # push to ghcr.io with the workflow's own token
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Image name (registry names must be lower case)
         id: image
