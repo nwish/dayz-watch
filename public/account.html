@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dayz-watch – account</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/theme.css">
+<style>
+  /* Page-specific styles. The palette, header and form controls come from /theme.css. */
+  h2 { font-size: 1.05rem; margin: 0 0 .8rem; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 3px; padding: 1rem 1.1rem; margin-bottom: 1.2rem; }
+  @media (max-width: 640px) {
+    h1 { font-size: 1.2rem; white-space: nowrap; }
+    button, input, a.btn { padding: .65rem .75rem; }
+    .inline > * { flex: 1 1 100%; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1><img src="/favicon.svg" alt="">dayz-watch</h1>
+  <nav>
+    <span id="who" class="muted"></span>
+    <a class="btn" href="/">&larr; Servers</a>
+  </nav>
+</header>
+
+<section>
+  <h2>Change password</h2>
+  <form id="pw-form" class="inline">
+    <input name="username" autocomplete="username" hidden>
+    <input name="currentPassword" type="password" placeholder="Current password" autocomplete="current-password" required>
+    <input name="newPassword" type="password" placeholder="New password (10-128 characters)" autocomplete="new-password" minlength="10" maxlength="128" required>
+    <input name="confirm" type="password" placeholder="Confirm new password" autocomplete="new-password" required>
+    <button type="submit">Change password</button>
+    <span id="pw-msg"></span>
+  </form>
+</section>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+// fetch wrapper: JSON in/out; a lost session goes to the login page.
+async function api(path, { method = "GET", body } = {}) {
+  const r = await fetch(path, {
+    method,
+    headers: body ? { "content-type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (r.status === 401) {
+    location.replace("/login");
+    throw new Error("signed out");
+  }
+  return { ok: r.ok, status: r.status, data: await r.json().catch(() => ({})) };
+}
+
+function setMsg(id, text, ok) {
+  $(id).textContent = text;
+  $(id).className = ok ? "ok" : "err";
+}
+
+$("pw-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  if (f.newPassword.value !== f.confirm.value) return setMsg("pw-msg", "New passwords don't match.", false);
+  const { ok, data } = await api("/api/me/password", {
+    method: "POST",
+    body: { currentPassword: f.currentPassword.value, newPassword: f.newPassword.value },
+  });
+  setMsg("pw-msg", ok ? "Password changed. Your other sessions were signed out." : data.error, ok);
+  if (ok) f.reset();
+});
+
+(async () => {
+  const me = (await api("/api/me")).data;
+  $("who").textContent = `${me.username} (${me.role})`;
+  $("pw-form").username.value = me.username; // lets password managers update the right entry
+})();
+</script>
+</body>
+</html>

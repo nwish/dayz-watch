@@ -135,7 +135,7 @@
   <nav>
     <span id="who" class="muted"></span>
     <a class="btn" id="admin-link" href="/admin" hidden>Admin</a>
-    <button id="acct-btn">Account</button>
+    <a class="btn" id="acct-btn" href="/account" hidden>Account</a>
     <button id="logout">Log out</button>
   </nav>
 </header>
@@ -162,18 +162,6 @@
     </form>
   </div>
 </dialog>
-
-<section id="panel-account" hidden>
-  <h2>Account</h2>
-  <form id="pw-form" class="inline">
-    <input name="username" autocomplete="username" hidden>
-    <input name="currentPassword" type="password" placeholder="Current password" autocomplete="current-password" required>
-    <input name="newPassword" type="password" placeholder="New password (10-128 characters)" autocomplete="new-password" minlength="10" maxlength="128" required>
-    <input name="confirm" type="password" placeholder="Confirm new password" autocomplete="new-password" required>
-    <button type="submit">Change password</button>
-    <span id="pw-msg"></span>
-  </form>
-</section>
 
 <div id="overlay" hidden>
   <div id="card" class="card" role="dialog" aria-modal="true" aria-labelledby="ov-name">
@@ -790,35 +778,14 @@ function ask({ title, text = "", confirmLabel = "OK", input = null }) {
 const $ = (id) => document.getElementById(id);
 let me = null;
 
-function setMsg(id, text, ok) {
-  $(id).textContent = text;
-  $(id).className = ok ? "ok" : "err";
-}
-
-$("acct-btn").onclick = () => {
-  $("panel-account").hidden = !$("panel-account").hidden;
-};
 $("logout").onclick = async () => {
   await api("/api/logout", { method: "POST" });
   location.replace("/login");
 };
 
-$("pw-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const f = e.target;
-  if (f.newPassword.value !== f.confirm.value) return setMsg("pw-msg", "New passwords don't match.", false);
-  const { ok, data } = await api("/api/me/password", {
-    method: "POST",
-    body: { currentPassword: f.currentPassword.value, newPassword: f.newPassword.value },
-  });
-  setMsg("pw-msg", ok ? "Password changed. Your other sessions were signed out." : data.error, ok);
-  if (ok) f.reset();
-});
-
 (async () => {
   me = (await api("/api/me")).data;
   $("who").textContent = me.authDisabled ? "auth disabled" : `${me.username} (${me.role})`;
-  $("pw-form").username.value = me.username; // lets password managers update the right entry
   $("acct-btn").hidden = me.authDisabled;
   $("logout").hidden = me.authDisabled;
   $("admin-link").hidden = me.role !== "admin";

@@ -302,7 +302,7 @@ async function loadUsers() {
     login.textContent = u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : "never";
     const td = tr.insertCell();
     const action = (label, fn) => {
-      const b = h("button", { textContent: label, disabled: self }); // your own account is managed from the main page's Account panel
+      const b = h("button", { textContent: label, disabled: self }); // your own account is managed from the Account page
       b.onclick = async () => {
         const res = await fn();
         if (!res) return;

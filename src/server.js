@@ -33,6 +33,7 @@ const THEME_CSS = page("theme.css");
 const THEME_ETAG = `"${crypto.createHash("sha1").update(THEME_CSS).digest("hex").slice(0, 16)}"`; // revalidated on every load, so a redeploy is never stale
 const STATS_HTML = page("stats.html");
 const ADMIN_HTML = page("admin.html");
+const ACCOUNT_HTML = page("account.html");
 
 const FIFTEEN_MIN = 15 * 60e3;
 const store = new Store(DATA_DIR);
@@ -376,6 +377,9 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && pathname === "/") return reply(res, 200, INDEX_HTML, "text/html; charset=utf-8");
     if (req.method === "GET" && pathname === "/admin") {
       return session.user.role === "admin" ? reply(res, 200, ADMIN_HTML, "text/html; charset=utf-8") : redirect(res, "/");
+    }
+    if (req.method === "GET" && pathname === "/account") {
+      return AUTH_DISABLED ? redirect(res, "/") : reply(res, 200, ACCOUNT_HTML, "text/html; charset=utf-8"); // no password to change without login
     }
     const statsPage = req.method === "GET" && /^\/servers\/([\w-]+)$/.exec(pathname);
     if (statsPage) return store.get(statsPage[1]) ? reply(res, 200, STATS_HTML, "text/html; charset=utf-8") : redirect(res, "/");
