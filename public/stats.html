@@ -36,7 +36,17 @@
   .tip b { font-weight: 600; }
   .legend { display: flex; flex-wrap: wrap; gap: .4rem 1.2rem; margin-top: .5rem; font-size: .8rem; color: var(--dim); }
   .legend i { display: inline-block; width: .9rem; height: .5rem; margin-right: .35rem; vertical-align: middle; border-radius: 1px; }
-  .heatwrap { overflow-x: auto; }
+  /* Edge shadows appear only on a side that has more to scroll to; the hint line shows only while the grid overflows. */
+  .heatwrap {
+    overflow-x: auto;
+    background:
+      linear-gradient(90deg, var(--panel) 30%, transparent) left / 2rem 100% no-repeat local,
+      linear-gradient(270deg, var(--panel) 30%, transparent) right / 2rem 100% no-repeat local,
+      linear-gradient(90deg, rgba(0,0,0,.45), transparent) left / .8rem 100% no-repeat scroll,
+      linear-gradient(270deg, rgba(0,0,0,.45), transparent) right / .8rem 100% no-repeat scroll;
+  }
+  .scrollhint { margin: 0 0 .4rem; font-size: .75rem; color: var(--dim); }
+  .scrollhint[hidden] { display: none; }
   .heat { display: grid; grid-template-columns: 2.6rem repeat(24, minmax(1.05rem, 1fr)); gap: 2px; min-width: 34rem; }
   .heat .lbl { font-size: .7rem; color: var(--dim); display: flex; align-items: center; }
   .heat .hr { font-size: .65rem; color: var(--dim); text-align: center; }
@@ -83,6 +93,7 @@
     <span><i style="background:rgba(163,184,108,.25)"></i>min&ndash;max in period</span>
     <span><i style="background:rgba(224,164,60,.6)"></i><span id="legend-restart">restart</span></span>
     <span><i style="background:rgba(229,105,91,.5)"></i>outage</span>
+    <span><i style="background:var(--dim);opacity:.5"></i>lost contact (server stayed up)</span>
     <span id="res"></span>
   </div>
 </section>
@@ -98,7 +109,8 @@
 
 <section id="heat-sec" hidden>
   <h3>Busiest times <span class="muted" id="tzname" style="text-transform:none;letter-spacing:0"></span></h3>
-  <div class="heatwrap"><div class="heat" id="heat"></div></div>
+  <p class="scrollhint" id="heat-hint" hidden>Scroll sideways to see all hours →</p>
+  <div class="heatwrap" id="heatwrap"><div class="heat" id="heat"></div></div>
   <div class="scale"><span>quiet</span><span class="ramp"></span><span id="heat-max">busy</span></div>
 </section>
 
@@ -273,7 +285,8 @@ function drawTimeline(d) {
     const x0 = Math.max(m.l, x(i.from));
     const x1 = Math.min(W - m.r, x(i.to));
     if (x1 < x0) continue;
-    svg.append(s("rect", { x: x0, y: m.t, width: Math.max(2, x1 - x0), height: ph, fill: i.kind === "outage" ? "var(--err)" : "var(--warn)", opacity: i.kind === "outage" ? ".3" : ".4" }));
+    const shade = { outage: ["var(--err)", ".3"], reboot: ["var(--warn)", ".4"], blip: ["var(--dim)", ".3"] }[i.kind];
+    svg.append(s("rect", { x: x0, y: m.t, width: Math.max(2, x1 - x0), height: ph, fill: shade[0], opacity: shade[1] }));
   }
 
   // Contiguous runs of answered periods: a gap in the data (container down) breaks the line.
@@ -413,7 +426,16 @@ function drawHeat(d) {
   }
   grid.replaceChildren(...kids);
   $("heat-max").textContent = `busy (${num(max)})`;
+  updateHeatHint();
 }
+
+// Show the hint only while the grid overflows and the right edge hasn't been reached yet.
+function updateHeatHint() {
+  const w = $("heatwrap");
+  $("heat-hint").hidden = w.scrollWidth - w.clientWidth <= 1 || w.scrollLeft + w.clientWidth >= w.scrollWidth - 1;
+}
+$("heatwrap").addEventListener("scroll", updateHeatHint, { passive: true });
+window.addEventListener("resize", updateHeatHint);
 
 function render(d) {
   document.title = `${d.server.info?.name ?? d.server.host} – dayz-watch stats`;

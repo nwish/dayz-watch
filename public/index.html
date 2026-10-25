@@ -11,7 +11,14 @@
   body { --ctl-pad: .5rem .6rem; max-width: 900px; }
   table { margin-bottom: 1.5rem; }
   th { font-size: .8rem; }
-  #add { display: grid; grid-template-columns: 2fr 1fr; gap: .6rem; }
+  .toolbar { display: flex; justify-content: flex-end; margin-bottom: .8rem; }
+  .toolbar button { margin: 0; }
+  /* The add-server modal. overflow: visible lets the directory dropdown extend past the dialog's edge. */
+  #add-dialog { width: min(560px, calc(100% - 1.5rem)); box-sizing: border-box; padding: 0; overflow: visible; background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; }
+  #add-dialog::backdrop { background: rgba(0,0,0,.7); }
+  #add-dialog .dlg-body { position: relative; padding: 1.4rem 1.5rem; }
+  #add-dialog h2 { margin: 0 2.5rem 1rem 0; font-size: 1.1rem; }
+  #add { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
   #add input[name=webhookUrl] { grid-column: 1 / -1; }
   .combo { grid-column: 1 / -1; position: relative; }
   .combo input { width: 100%; box-sizing: border-box; }
@@ -51,6 +58,10 @@
   tr.clickable:hover { background: var(--panel); box-shadow: inset 3px 0 var(--hl); }
   #overlay { --art: #1a1d23; --border: #333840; --text: #e6e6e6; --muted: #9aa0a6; --accent: #c9d1d9; --backdrop: rgba(0,0,0,.78); --btn-bg: #1e2127; --ok: #7ee787; --err: #ff7b72; position: fixed; inset: 0; background: var(--backdrop); display: flex; align-items: center; justify-content: center; z-index: 10; }
   #overlay[hidden] { display: none; }
+  /* While the detail card is open the page behind it must not scroll; the gutter stays reserved so the layout doesn't jump. */
+  html { scrollbar-gutter: stable; }
+  html.modal-open { overflow: hidden; }
+  #overlay { overscroll-behavior: contain; }
   .card { position: relative; width: min(680px, 92vw); max-height: 92vh; overflow: auto; background: var(--art); color: var(--text); border: 1px solid var(--border); border-radius: 12px; padding: 2rem 2.2rem; }
   .card h2 { margin: 0 2rem .5rem 0; font-size: 1.15rem; font-weight: 600; color: var(--accent); font-family: inherit; text-transform: none; letter-spacing: normal; } /* the server name, not a page heading */
   .close { position: absolute; top: .8rem; right: .8rem; width: 2.2rem; height: 2.2rem; padding: 0; font-size: 1.4rem; line-height: 1; }
@@ -124,39 +135,33 @@
   <nav>
     <span id="who" class="muted"></span>
     <a class="btn" id="admin-link" href="/admin" hidden>Admin</a>
-    <button id="acct-btn">Account</button>
+    <a class="btn" id="acct-btn" href="/account" hidden>Account</a>
     <button id="logout">Log out</button>
   </nav>
 </header>
+<div class="toolbar"><button id="add-open" type="button">+ Add server</button></div>
 <table>
   <thead><tr><th>Server</th><th>Address</th><th>Map</th><th>Players</th><th>Status</th><th></th></tr></thead>
   <tbody id="rows"><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
 </table>
 
-<h2 style="font-size:1.05rem">Add server</h2>
-<form id="add">
-  <div class="combo">
-    <input id="dir-q" type="search" placeholder="Search public servers by name, map, number or IP (or fill in the fields below)" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="dir-list" aria-autocomplete="list">
-    <ul id="dir-list" role="listbox" hidden></ul>
+<dialog id="add-dialog" aria-labelledby="add-title">
+  <div class="dlg-body">
+    <button id="add-close" type="button" class="close" aria-label="Close">×</button>
+    <h2 id="add-title">Add server</h2>
+    <form id="add">
+      <div class="combo">
+        <input id="dir-q" type="search" placeholder="Search public servers by name, map, number or IP (or fill in the fields below)" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="dir-list" aria-autocomplete="list">
+        <ul id="dir-list" role="listbox" hidden></ul>
+      </div>
+      <input name="host" placeholder="Host or IP, e.g. 85.190.157.254" required>
+      <input name="queryPort" type="number" min="1" max="65535" placeholder="Query port (game port + 1)" required>
+      <input name="webhookUrl" id="webhook" placeholder="Discord webhook URL (optional; blank = monitor only unless a default is set)" autocomplete="off">
+      <button type="submit">Add</button>
+      <span id="msg"></span>
+    </form>
   </div>
-  <input name="host" placeholder="Host or IP, e.g. 85.190.157.254" required>
-  <input name="queryPort" type="number" min="1" max="65535" placeholder="Query port (game port + 1)" required>
-  <input name="webhookUrl" id="webhook" placeholder="Discord webhook URL (optional; blank = monitor only unless a default is set)" autocomplete="off">
-  <button type="submit">Add</button>
-  <span id="msg"></span>
-</form>
-
-<section id="panel-account" hidden>
-  <h2>Account</h2>
-  <form id="pw-form" class="inline">
-    <input name="username" autocomplete="username" hidden>
-    <input name="currentPassword" type="password" placeholder="Current password" autocomplete="current-password" required>
-    <input name="newPassword" type="password" placeholder="New password (10-128 characters)" autocomplete="new-password" minlength="10" maxlength="128" required>
-    <input name="confirm" type="password" placeholder="Confirm new password" autocomplete="new-password" required>
-    <button type="submit">Change password</button>
-    <span id="pw-msg"></span>
-  </form>
-</section>
+</dialog>
 
 <div id="overlay" hidden>
   <div id="card" class="card" role="dialog" aria-modal="true" aria-labelledby="ov-name">
@@ -287,7 +292,7 @@ async function load() {
     btn.textContent = "Remove";
     btn.onclick = async (ev) => {
       ev.stopPropagation(); // don't open the overlay
-      if (!confirm(`Remove ${s.host}:${s.queryPort}?`)) return;
+      if (!(await ask({ title: "Remove server", text: `Remove ${s.host}:${s.queryPort}? Its history is deleted too.`, confirmLabel: "Remove" }))) return;
       await api(`/api/servers/${s.id}`, { method: "DELETE" });
       load();
     };
@@ -471,12 +476,14 @@ function openOverlay(s) {
   applyTheme(s.info?.map, s.info?.gameTime);
   card.classList.remove("flash-up", "flash-down");
   overlay.hidden = false;
+  document.documentElement.classList.add("modal-open");
   renderOverlay(s);
 }
 
 function closeOverlay() {
   openId = null;
   overlay.hidden = true;
+  document.documentElement.classList.remove("modal-open");
 }
 
 function renderOverlay(s) {
@@ -595,10 +602,30 @@ document.getElementById("add").addEventListener("submit", async (e) => {
     method: "POST",
     body: { host: f.host.value, queryPort: f.queryPort.value, webhookUrl: f.webhookUrl.value },
   });
-  msg.textContent = ok ? "Added." : data.error;
-  msg.className = ok ? "ok" : "err";
-  if (ok) f.reset();
+  if (ok) {
+    f.reset();
+    addDialog.close();
+  } else {
+    msg.textContent = data.error;
+    msg.className = "err";
+  }
   load();
+});
+
+// ---- Add-server modal ----
+const addDialog = document.getElementById("add-dialog");
+document.getElementById("add-open").onclick = () => {
+  addForm.reset();
+  msg.textContent = "";
+  dirClose();
+  addDialog.showModal();
+  document.documentElement.classList.add("modal-open");
+  dirQ.focus();
+};
+addDialog.addEventListener("close", () => document.documentElement.classList.remove("modal-open")); // Escape, ×, backdrop and a successful add all end here
+document.getElementById("add-close").onclick = () => addDialog.close();
+addDialog.addEventListener("click", (e) => {
+  if (e.target === addDialog) addDialog.close(); // a click on the backdrop
 });
 
 // ---- Server directory autocomplete ----
@@ -704,39 +731,61 @@ dirQ.addEventListener("keydown", (e) => {
 dirQ.addEventListener("focus", () => dirQ.value.trim().length >= 2 && dirItems.length && (dirList.hidden = false));
 document.addEventListener("click", (e) => e.target.closest(".combo") || dirClose());
 
+// Modal replacement for confirm() and prompt(). Resolves true/false, or with { input } the typed text / null.
+function ask({ title, text = "", confirmLabel = "OK", input = null }) {
+  return new Promise((resolve) => {
+    const d = document.createElement("dialog");
+    d.className = "ask";
+    const form = document.createElement("form");
+    const h2 = document.createElement("h2");
+    h2.textContent = title;
+    const p = document.createElement("p");
+    p.textContent = text;
+    form.append(h2, p);
+    let field = null;
+    if (input) {
+      field = Object.assign(document.createElement("input"), { required: true, ...input });
+      form.append(field);
+    }
+    const cancel = Object.assign(document.createElement("button"), { type: "button", textContent: "Cancel" });
+    const ok = Object.assign(document.createElement("button"), { type: "submit", textContent: confirmLabel });
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    actions.append(cancel, ok);
+    form.append(actions);
+    d.append(form);
+    let result = input ? null : false;
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      result = field ? field.value : true;
+      d.close();
+    });
+    cancel.onclick = () => d.close();
+    d.addEventListener("click", (e) => {
+      if (e.target === d) d.close(); // a click on the backdrop
+    });
+    d.addEventListener("close", () => {
+      d.remove();
+      resolve(result); // Escape, Cancel and the backdrop all leave the default (no)
+    });
+    document.body.append(d);
+    d.showModal();
+    (field ?? cancel).focus(); // a confirmation defaults to Cancel, so a stray Enter can't delete
+  });
+}
+
 // ---- Session, account and user management ----
 const $ = (id) => document.getElementById(id);
 let me = null;
 
-function setMsg(id, text, ok) {
-  $(id).textContent = text;
-  $(id).className = ok ? "ok" : "err";
-}
-
-$("acct-btn").onclick = () => {
-  $("panel-account").hidden = !$("panel-account").hidden;
-};
 $("logout").onclick = async () => {
   await api("/api/logout", { method: "POST" });
   location.replace("/login");
 };
 
-$("pw-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const f = e.target;
-  if (f.newPassword.value !== f.confirm.value) return setMsg("pw-msg", "New passwords don't match.", false);
-  const { ok, data } = await api("/api/me/password", {
-    method: "POST",
-    body: { currentPassword: f.currentPassword.value, newPassword: f.newPassword.value },
-  });
-  setMsg("pw-msg", ok ? "Password changed. Your other sessions were signed out." : data.error, ok);
-  if (ok) f.reset();
-});
-
 (async () => {
   me = (await api("/api/me")).data;
   $("who").textContent = me.authDisabled ? "auth disabled" : `${me.username} (${me.role})`;
-  $("pw-form").username.value = me.username; // lets password managers update the right entry
   $("acct-btn").hidden = me.authDisabled;
   $("logout").hidden = me.authDisabled;
   $("admin-link").hidden = me.role !== "admin";

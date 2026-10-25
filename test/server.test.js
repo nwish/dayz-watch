@@ -294,6 +294,16 @@ test("adding a server: it must answer and be a DayZ server", async () => {
   }
 }, { timeout: 30_000 });
 
+test("account: the change-password page needs a session", async () => {
+  const anon = client();
+  const anonPage = await anon.call("GET", "/account");
+  assert.deepEqual([anonPage.status, anonPage.headers.get("location")], [302, "/login"]);
+  const admin = await loginAs("admin", ADMIN_PW);
+  const page = await admin.call("GET", "/account");
+  assert.equal(page.status, 200);
+  assert.match(page.text, /Change password/);
+});
+
 test("AUTH_DISABLED bypasses login with an implicit local admin without weakening origin checks", async () => {
   const disabledDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "dw-no-auth-"));
   const port = await freePort();
@@ -325,6 +335,8 @@ test("AUTH_DISABLED bypasses login with an implicit local admin without weakenin
     assert.deepEqual(await me.json(), { username: "local", role: "admin", authDisabled: true });
     assert.deepEqual(me.headers.getSetCookie(), []);
     assert.equal((await call("GET", "/admin")).status, 200);
+    const account = await call("GET", "/account");
+    assert.deepEqual([account.status, account.headers.get("location")], [302, "/"]); // nothing to log in to, so no password to change
     assert.equal((await call("GET", "/api/users")).status, 200);
     assert.equal((await call("GET", "/api/admin/overview")).status, 200);
     assert.equal((await call("POST", "/api/servers", { host: "127.0.0.1", queryPort: dayzPort }, { origin: "http://evil.example" })).status, 403);

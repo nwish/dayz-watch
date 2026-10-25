@@ -49,7 +49,8 @@ export class Monitor {
   // recheckMs: while a server isn't answering it is polled this often instead of every pollMs (see nextPollDelay).
   // rebootWindowMs: a normal restart takes a few minutes, so Discord is only told about a server that is still
   // down after this long (0 = tell it as soon as the server counts as offline).
-  // onOutage(server, "start" | "end", atMs): an outage began (first failed poll) or ended (first answered poll).
+  // onOutage(server, "start" | "end", atMs, players): an outage began (first failed poll) or ended (first answered
+  // poll, with the player count it reported).
   constructor({ query, notify = postWebhook, defaultWebhook = null, pollMs = 30_000, recheckMs = 5_000, onSample = null, onOutage = null, offlineAfter = 3, rebootWindowMs = 10 * 60e3, now = Date.now }) {
     this.query = query;
     this.notify = notify;
@@ -65,9 +66,9 @@ export class Monitor {
   }
 
   // Same rule as #sample: a history-store failure must never stop the polling loop.
-  #outage(server, kind, atMs) {
+  #outage(server, kind, atMs, players) {
     try {
-      this.onOutage?.(server, kind, atMs);
+      this.onOutage?.(server, kind, atMs, players);
     } catch (e) {
       console.error(`${ts()} recording outage ${kind} for ${server.host}:${server.queryPort} failed: ${e.message}`);
     }
@@ -228,7 +229,7 @@ export class Monitor {
     st.offlineNotified = false;
     st.lastSeenAt = this.now();
     this.#sample(server, { players: info.players, maxPlayers: info.maxPlayers });
-    if (wasOffline) this.#outage(server, "end", this.now());
+    if (wasOffline) this.#outage(server, "end", this.now(), info.players);
     if (wasOffline && !announceBack) console.log(`${ts()} ${address} answering again after ${formatDuration(downMs)}, not announced`);
 
     if (announceBack) {

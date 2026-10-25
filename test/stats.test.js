@@ -186,6 +186,40 @@ test("downtime keeps the monitor's exact times, splits restarts from outages by 
   });
 });
 
+test("a short downtime that ends with players online is a blip: neither a restart nor an outage", () => {
+  const { s } = harness({ rebootSeconds: 300 });
+  s.outageStart("a", T0 - 3000);
+  s.outageEnd("a", T0 - 2900, 0); // back empty: a restart
+  s.outageStart("a", T0 - 2000);
+  s.outageEnd("a", T0 - 1900, 12); // back with 12 players: only the monitor lost contact
+  s.outageStart("a", T0 - 1000);
+  s.outageEnd("a", T0 - 900); // players unknown (older row): judged on length alone
+  s.outageStart("a", T0 - 800);
+  s.outageEnd("a", T0 - 800 + 600, 5); // as long as the window with players back: still an outage
+  const d = s.query("a", "24h").downtime;
+  assert.deepEqual(d.intervals.map((i) => i.kind), ["reboot", "blip", "reboot", "outage"]);
+  assert.deepEqual([d.reboots.count, d.outages.count], [2, 1]); // the blip is in neither
+});
+
+test("an existing database without outages.players_after is upgraded in place", async () => {
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const { DatabaseSync } = await import("node:sqlite");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "stats-"));
+  const file = path.join(dir, "old.db");
+  try {
+    const old = new DatabaseSync(file);
+    old.exec("CREATE TABLE outages (server_id TEXT NOT NULL, started INTEGER NOT NULL, ended INTEGER, PRIMARY KEY (server_id, started)) WITHOUT ROWID; INSERT INTO outages VALUES ('a', 100, 200);");
+    old.close();
+    const s = new Stats(file, { now: () => T0 });
+    assert.equal(s.db.prepare("SELECT players_after FROM outages").get().players_after, null);
+    s.close();
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("recurring restarts are summarised as the local hours they usually begin; a one-off is not a schedule", () => {
   const { s } = harness();
   const at = (d, h, m = 0) => Date.UTC(2026, 9, d, h, m) / 1000;

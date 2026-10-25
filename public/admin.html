@@ -126,6 +126,49 @@ async function api(path, { method = "GET", body } = {}) {
   return { ok: r.ok, status: r.status, data: await r.json().catch(() => ({})) };
 }
 
+// Modal replacement for confirm() and prompt(). Resolves true/false, or with { input } the typed text / null.
+function ask({ title, text = "", confirmLabel = "OK", input = null }) {
+  return new Promise((resolve) => {
+    const d = document.createElement("dialog");
+    d.className = "ask";
+    const form = document.createElement("form");
+    const h2 = document.createElement("h2");
+    h2.textContent = title;
+    const p = document.createElement("p");
+    p.textContent = text;
+    form.append(h2, p);
+    let field = null;
+    if (input) {
+      field = Object.assign(document.createElement("input"), { required: true, ...input });
+      form.append(field);
+    }
+    const cancel = Object.assign(document.createElement("button"), { type: "button", textContent: "Cancel" });
+    const ok = Object.assign(document.createElement("button"), { type: "submit", textContent: confirmLabel });
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    actions.append(cancel, ok);
+    form.append(actions);
+    d.append(form);
+    let result = input ? null : false;
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      result = field ? field.value : true;
+      d.close();
+    });
+    cancel.onclick = () => d.close();
+    d.addEventListener("click", (e) => {
+      if (e.target === d) d.close(); // a click on the backdrop
+    });
+    d.addEventListener("close", () => {
+      d.remove();
+      resolve(result); // Escape, Cancel and the backdrop all leave the default (no)
+    });
+    document.body.append(d);
+    d.showModal();
+    (field ?? cancel).focus(); // a confirmation defaults to Cancel, so a stray Enter can't delete
+  });
+}
+
 function setMsg(id, text, ok) {
   $(id).textContent = text;
   $(id).className = ok ? "ok" : "err";
@@ -259,7 +302,7 @@ async function loadUsers() {
     login.textContent = u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : "never";
     const td = tr.insertCell();
     const action = (label, fn) => {
-      const b = h("button", { textContent: label, disabled: self }); // your own account is managed from the main page's Account panel
+      const b = h("button", { textContent: label, disabled: self }); // your own account is managed from the Account page
       b.onclick = async () => {
         const res = await fn();
         if (!res) return;
@@ -271,11 +314,16 @@ async function loadUsers() {
     };
     const patch = (body) => api(`/api/users/${u.username}`, { method: "PATCH", body });
     action(u.role === "admin" ? "Make user" : "Make admin", () => patch({ role: u.role === "admin" ? "user" : "admin" }));
-    action("Reset password", () => {
-      const password = prompt(`New password for ${u.username} (10-128 characters):`);
+    action("Reset password", async () => {
+      const password = await ask({
+        title: "Reset password",
+        text: `New password for ${u.username}. They are signed out everywhere.`,
+        confirmLabel: "Reset",
+        input: { type: "password", placeholder: "New password (10-128 characters)", autocomplete: "new-password", minLength: 10, maxLength: 128 },
+      });
       return password ? patch({ password }) : null;
     });
-    action("Delete", () => (confirm(`Delete user ${u.username}?`) ? api(`/api/users/${u.username}`, { method: "DELETE" }) : null));
+    action("Delete", async () => ((await ask({ title: "Delete user", text: `Delete user ${u.username}? They are signed out immediately.`, confirmLabel: "Delete" })) ? api(`/api/users/${u.username}`, { method: "DELETE" }) : null));
   }
 }
 

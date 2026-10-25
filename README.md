@@ -42,7 +42,7 @@ The container needs outbound UDP to the query ports and outbound HTTPS to Discor
 - **Roles:** `admin` can do everything including the admin page; `user` can view and manage servers but not users.
 - **Admin page (`/admin`, admins only; linked as *Admin* in the header):** manage users and see database statistics. Users: add, make/unmake admin, reset passwords, delete. Resetting a password or deleting a user signs that user out immediately. You can't delete yourself or change your own role, and the last admin can't be demoted or deleted. Non-admins who open `/admin` are sent back to the server list.
 - **Admin statistics:** servers, users, active sessions, uptime and memory; watcher query RTT (latest and average A2S response time from the app host, not player latency); the history database (size and write-ahead log, row and poll counts, oldest and newest sample, an estimate of its size at the full 90 days); per-server history coverage (a row marked *deleted server* means history left behind for a server that no longer exists); and the sizes of every file in the data directory. It refreshes every 30 s.
-- **Account:** any user can change their own password (needs the current one; their other sessions are signed out).
+- **Account page (`/account`, linked as *Account* in the header):** any user can change their own password (needs the current one; their other sessions are signed out).
 - Usernames are 3-32 characters of `a-z 0-9 . _ -` (case-insensitive). Passwords are 10-128 characters.
 - **Rate limiting** applies to failed logins: 10 failures per username or 20 per client IP within 15 minutes locks that username/IP for 15 minutes (HTTP 429 with `Retry-After`). A locked key is refused before the password is checked. Counters are in memory and reset on restart. Trade-off: anyone can lock a known username out for 15 minutes by guessing wrongly; other accounts and valid sessions are unaffected.
 - State-changing requests must be JSON and, if they carry an `Origin` header, same-origin.
@@ -66,7 +66,7 @@ A server is **offline** after `OFFLINE_AFTER` failed polls in a row; a single dr
 
 ## Finding servers to add
 
-The *Add server* form has a search box. Type part of a server name, number (e.g. `2305`), map, or IP (`85.190.157.254` or `ip:port`) and pick a result: it fills in the host and query port. All words you type must match; name-prefix matches rank first, then busier servers. Typing host and port by hand still works.
+The *+ Add server* button above the server list opens a form (a modal) with a search box. Type part of a server name, number (e.g. `2305`), map, or IP (`85.190.157.254` or `ip:port`) and pick a result: it fills in the host and query port. All words you type must match; name-prefix matches rank first, then busier servers. Typing host and port by hand still works.
 
 Whichever way a server is entered, it is queried once before it is saved: it must answer and identify itself as DayZ, otherwise the add is refused with a message (a wrong host, or the game port typed instead of the query port, are the usual causes). A server that is down at that moment can't be added; add it once it is back.
 
@@ -80,7 +80,7 @@ Every poll of every monitored server is recorded, and 90 days are kept (older da
 - **Players over time:** average line with the min–max band for each period. The times the server was dark are shaded **amber for a normal restart and red for an outage**. Hover for exact values. Periods are 5 min (1 h, 12 h and 24 h), 30 min (7 days), 2 h (30 days) or 6 h (90 days).
 - **Daily trend:** average and peak per day (7 days and up).
 - **Busiest times:** a weekday × hour heatmap of average players (7 days and up), so you can see when a server fills up.
-- **Outages** and **Restarts:** two lists. A downtime shorter than `REBOOT_WINDOW_MINUTES` is a restart; a longer one is an outage. The restart section also says how many there were, how long they typically take, and the hours of the day they usually begin (when they recur), so a schedule like 04:00 / 10:00 / 16:00 / 22:00 shows up.
+- **Outages** and **Restarts:** two lists. A downtime shorter than `REBOOT_WINDOW_MINUTES` is a restart; a longer one is an outage. A short downtime that ends with players already online is neither: a restarted server comes back empty, so players on the first reading mean the server never went down and only the watcher lost contact. It is shaded grey on the chart as *lost contact* and left out of both lists and counts. (Downtimes recorded before this check, and ones still in progress, are judged on length alone.) The restart section also says how many there were, how long they typically take, and the hours of the day they usually begin (when they recur), so a schedule like 04:00 / 10:00 / 16:00 / 22:00 shows up.
 
 Notes:
 
