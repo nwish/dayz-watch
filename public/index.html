@@ -304,7 +304,7 @@ async function load() {
     btn.textContent = "Remove";
     btn.onclick = async (ev) => {
       ev.stopPropagation(); // don't open the overlay
-      if (!confirm(`Remove ${s.host}:${s.queryPort}?`)) return;
+      if (!(await ask({ title: "Remove server", text: `Remove ${s.host}:${s.queryPort}? Its history is deleted too.`, confirmLabel: "Remove" }))) return;
       await api(`/api/servers/${s.id}`, { method: "DELETE" });
       load();
     };
@@ -742,6 +742,49 @@ dirQ.addEventListener("keydown", (e) => {
 });
 dirQ.addEventListener("focus", () => dirQ.value.trim().length >= 2 && dirItems.length && (dirList.hidden = false));
 document.addEventListener("click", (e) => e.target.closest(".combo") || dirClose());
+
+// Modal replacement for confirm() and prompt(). Resolves true/false, or with { input } the typed text / null.
+function ask({ title, text = "", confirmLabel = "OK", input = null }) {
+  return new Promise((resolve) => {
+    const d = document.createElement("dialog");
+    d.className = "ask";
+    const form = document.createElement("form");
+    const h2 = document.createElement("h2");
+    h2.textContent = title;
+    const p = document.createElement("p");
+    p.textContent = text;
+    form.append(h2, p);
+    let field = null;
+    if (input) {
+      field = Object.assign(document.createElement("input"), { required: true, ...input });
+      form.append(field);
+    }
+    const cancel = Object.assign(document.createElement("button"), { type: "button", textContent: "Cancel" });
+    const ok = Object.assign(document.createElement("button"), { type: "submit", textContent: confirmLabel });
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    actions.append(cancel, ok);
+    form.append(actions);
+    d.append(form);
+    let result = input ? null : false;
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      result = field ? field.value : true;
+      d.close();
+    });
+    cancel.onclick = () => d.close();
+    d.addEventListener("click", (e) => {
+      if (e.target === d) d.close(); // a click on the backdrop
+    });
+    d.addEventListener("close", () => {
+      d.remove();
+      resolve(result); // Escape, Cancel and the backdrop all leave the default (no)
+    });
+    document.body.append(d);
+    d.showModal();
+    (field ?? cancel).focus(); // a confirmation defaults to Cancel, so a stray Enter can't delete
+  });
+}
 
 // ---- Session, account and user management ----
 const $ = (id) => document.getElementById(id);
