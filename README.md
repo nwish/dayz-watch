@@ -125,17 +125,6 @@ The overlay is themed by the server's map (colors, sky gradient, inline SVG land
 
 Every theme has a **day** and a **night** variant, chosen from the server's in-game clock (the `HH:MM` DayZ puts in the A2S keywords): day is 06:00–17:59, night 18:00–05:59. The card switches live when the clock crosses either time. A server with no in-game time gets day.
 
-To add a map, add an entry to `MAP_THEME` in `public/index.html` (and to `THEMES`, with `day` and `night` variants, if it needs its own look). Matching uses the lower-cased map name with non-letters removed.
-
-## Development
-
-```sh
-npm test                                   # node:test, no dependencies
-DISCORD_WEBHOOK_URL=... node src/server.js # data in ./data
-```
-
-The look (palette, background, header, form controls, stat cards) lives in `public/theme.css`, served without login so the login page can use it. Each page's `<style>` keeps only its own layout and loads after the theme. To restyle the app, change the variables at the top of `theme.css`. The server reads `public/` once at startup, so restart it to see edits.
-
 ## License
 
 [GPL-3.0](LICENSE).
