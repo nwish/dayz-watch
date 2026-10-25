@@ -282,6 +282,14 @@ async function api(req, res, url, session) {
         if (/private address/.test(e.message)) throw new Error(`invalid host: ${e.message}`);
       });
     }
+    const v = validateServerInput(input);
+    const address = `${v.host}:${v.queryPort}`;
+    // Only a DayZ server that answers can be added, which catches a wrong host or a game port typed
+    // instead of the query port (game port + 1). A server that is down at this moment can't be added.
+    const info = await queryInfo(v.host, v.queryPort, { allowPrivate: ALLOW_PRIVATE }).catch((e) => {
+      throw new Error(`invalid server: no answer from ${address} (${e.message}). Check the host and use the query port (game port + 1).`);
+    });
+    if (!info.isDayZ) throw new Error(`invalid server: ${address} answered, but it isn't a DayZ server`);
     const s = store.add(input);
     monitor.start(s);
     return reply(res, 201, serverView(s));

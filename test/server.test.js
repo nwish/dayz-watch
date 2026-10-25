@@ -6,11 +6,15 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import dgram from "node:dgram";
+import { fakeA2S } from "./fake-a2s.js";
 
 const ADMIN_PW = "correct-horse-battery";
 let proc;
 let base;
 let dataDir;
+let dayz; // a fake DayZ server on loopback: servers can only be added if they answer
+let dayzPort;
 
 const freePort = () =>
   new Promise((resolve) => {
@@ -21,6 +25,8 @@ const freePort = () =>
   });
 
 before(async () => {
+  dayz = await fakeA2S(() => 3);
+  dayzPort = dayz.address().port;
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "dw-srv-"));
   const port = await freePort();
   base = `http://127.0.0.1:${port}`;
@@ -35,6 +41,7 @@ before(async () => {
 });
 
 after(async () => {
+  dayz.close();
   const exited = new Promise((resolve) => proc.once("exit", resolve));
   proc.kill();
   await exited; // the server holds stats.db open; Windows can't delete it until the process is gone
@@ -195,7 +202,7 @@ test("stats: API and page require login, validate input, 404 unknown servers, an
   assert.equal((await anon.call("GET", "/servers/x")).status, 302);
 
   const c = await loginAs("admin", ADMIN_PW);
-  const added = await c.call("POST", "/api/servers", { host: "127.0.0.1", queryPort: 9 });
+  const added = await c.call("POST", "/api/servers", { host: "127.0.0.1", queryPort: dayzPort });
   assert.equal(added.status, 201);
   const id = added.json.id;
 
@@ -243,7 +250,7 @@ test("admin: page and overview API are admin-only and never leak credentials", a
   assert.equal(denied.status, 302);
   assert.equal(denied.headers.get("location"), "/");
 
-  const added = await admin.call("POST", "/api/servers", { host: "127.0.0.1", queryPort: 9, webhookUrl: "" });
+  const added = await admin.call("POST", "/api/servers", { host: "127.0.0.1", queryPort: dayzPort, webhookUrl: "" });
   const o = await admin.call("GET", "/api/admin/overview");
   assert.equal(o.status, 200);
   assert.match(o.json.runtime.node, /^v\d+/);
@@ -251,9 +258,9 @@ test("admin: page and overview API are admin-only and never leak credentials", a
   assert.equal(o.json.db.retentionDays, 90);
   assert.ok(o.json.db.pageSize > 0);
   const row = o.json.db.perServer.find((s) => s.serverId === added.json.id);
-  assert.equal(row.address, "127.0.0.1:9");
+  assert.equal(row.address, `127.0.0.1:${dayzPort}`);
   assert.equal(row.deleted, false);
-  assert.equal(row.ping, null);
+  assert.ok(row.ping === null || typeof row.ping.avgMs === "number"); // null until the first poll lands
   assert.doesNotMatch(o.text, /scrypt|ginas long password/);
   assert.equal((await admin.call("DELETE", `/api/servers/${added.json.id}`)).status, 200);
 
@@ -261,6 +268,31 @@ test("admin: page and overview API are admin-only and never leak credentials", a
   assert.equal(page.status, 200);
   assert.match(page.text, /Database/);
 });
+
+test("adding a server: it must answer and be a DayZ server", async () => {
+  const admin = await loginAs("admin", ADMIN_PW);
+  const add = (port) => admin.call("POST", "/api/servers", { host: "127.0.0.1", queryPort: port });
+
+  const silent = dgram.createSocket("udp4"); // bound, never answers
+  await new Promise((r) => silent.bind(0, "127.0.0.1", r));
+  const other = await fakeA2S(() => 5, { folder: "csgo", game: "Counter-Strike", appId: 730 });
+  try {
+    const none = await add(silent.address().port);
+    assert.equal(none.status, 400);
+    assert.match(none.json.error, /no answer from 127\.0\.0\.1:\d+ .*query port \(game port \+ 1\)/);
+    const wrong = await add(other.address().port);
+    assert.equal(wrong.status, 400);
+    assert.match(wrong.json.error, /isn't a DayZ server/);
+    assert.equal((await admin.call("GET", "/api/servers")).json.servers.filter((s) => s.queryPort === silent.address().port || s.queryPort === other.address().port).length, 0);
+    const ok = await add(dayzPort);
+    assert.equal(ok.status, 201);
+    assert.equal((await add(dayzPort)).status, 400); // already added
+    assert.equal((await admin.call("DELETE", `/api/servers/${ok.json.id}`)).status, 200);
+  } finally {
+    silent.close();
+    other.close();
+  }
+}, { timeout: 30_000 });
 
 test("AUTH_DISABLED bypasses login with an implicit local admin without weakening origin checks", async () => {
   const disabledDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "dw-no-auth-"));
@@ -295,9 +327,9 @@ test("AUTH_DISABLED bypasses login with an implicit local admin without weakenin
     assert.equal((await call("GET", "/admin")).status, 200);
     assert.equal((await call("GET", "/api/users")).status, 200);
     assert.equal((await call("GET", "/api/admin/overview")).status, 200);
-    assert.equal((await call("POST", "/api/servers", { host: "127.0.0.1", queryPort: 9 }, { origin: "http://evil.example" })).status, 403);
+    assert.equal((await call("POST", "/api/servers", { host: "127.0.0.1", queryPort: dayzPort }, { origin: "http://evil.example" })).status, 403);
 
-    const added = await call("POST", "/api/servers", { host: "127.0.0.1", queryPort: 9 });
+    const added = await call("POST", "/api/servers", { host: "127.0.0.1", queryPort: dayzPort });
     assert.equal(added.status, 201);
     assert.equal((await call("DELETE", `/api/servers/${(await added.clone().json()).id}`)).status, 200);
   } finally {

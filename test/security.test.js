@@ -88,9 +88,6 @@ test("server: private addresses can't be added unless ALLOW_PRIVATE_ADDRESSES is
       assert.equal(r.status, 400, host);
       assert.match((await r.json()).error, /private address/);
     }
-    const ok = await add("8.8.8.8");
-    assert.equal(ok.status, 201);
-    assert.equal((await fetch(`${base}/api/servers/${(await ok.json()).id}`, { method: "DELETE", headers: { cookie } })).status, 200);
   } finally {
     const exited = new Promise((resolve) => proc.once("exit", resolve));
     proc.kill();

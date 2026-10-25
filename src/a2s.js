@@ -22,6 +22,7 @@ function send(host, port, payload, timeoutMs) {
   });
 }
 
+const DAYZ_APP_ID = 221100;
 const PLATFORMS = { w: "Windows", l: "Linux", m: "Mac" };
 
 export function parseInfo(res) {
@@ -49,9 +50,9 @@ export function parseInfo(res) {
 
   const name = str();
   const map = str();
-  str(); // folder
-  str(); // game
-  u16(); // app id
+  const folder = str();
+  const game = str();
+  const appId = u16();
   const players = u8();
   const maxPlayers = u8();
   u8(); // bots
@@ -63,6 +64,7 @@ export function parseInfo(res) {
 
   let gamePort = null;
   let keywords = "";
+  let gameId = null;
   if (o < res.length) {
     const edf = u8(); // optional extra-data flags
     if (edf & 0x80) gamePort = u16();
@@ -75,6 +77,10 @@ export function parseInfo(res) {
       str(); // spectator name
     }
     if (edf & 0x20) keywords = str();
+    if (edf & 0x01) {
+      if (o + 8 > res.length) throw malformed();
+      gameId = res.readBigUInt64LE(o); // the full Steam app id: it doesn't fit the 16-bit field above
+    }
   }
 
   // DayZ packs its server flags into the keywords string, e.g. "battleye,no3rd,...,06:07".
@@ -86,6 +92,7 @@ export function parseInfo(res) {
     maxPlayers,
     version,
     platform: PLATFORMS[platform] ?? platform,
+    isDayZ: (gameId !== null && Number(gameId & 0xffffffn) === DAYZ_APP_ID) || appId === DAYZ_APP_ID || /dayz/i.test(`${folder} ${game}`), // DayZ's id (221100) only fits the 64-bit game id; the names are the fallback
     passwordProtected: visibility === 1,
     gamePort,
     battleye: kw.includes("battleye"),
