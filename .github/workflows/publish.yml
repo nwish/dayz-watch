@@ -1,15 +1,16 @@
 name: Publish image
 
-# Manual for now: Actions tab -> "Publish image" -> Run workflow.
-# Runs the tests, then builds the Dockerfile and pushes it to GitHub Container Registry
-# as ghcr.io/<owner>/<repo>.
+# Pushing a version tag (v1.2.3) runs the tests, builds the Dockerfile and pushes it to GitHub Container
+# Registry as ghcr.io/<owner>/<repo> tagged 1.2.3, 1.2, sha-<commit> and latest (a pre-release such as
+# v1.2.3-rc1 gets its own version and sha tags but never moves latest). Create the tag from the release page.
+# Running it by hand (Actions tab -> "Publish image" -> Run workflow) only pushes sha-<commit>,
+# so a test build can't change what latest or a version tag points at.
 on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
   workflow_dispatch:
     inputs:
-      version:
-        description: "Extra version tag to push, e.g. 1.2.0 (optional). sha-<commit> is always pushed, and latest too when run from the default branch."
-        required: false
-        type: string
       platforms:
         description: "Platforms to build"
         required: false
@@ -60,17 +61,19 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ${{ steps.image.outputs.name }}
+          flavor: latest=false
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
             type=sha,format=short
-            ${{ inputs.version != '' && format('type=raw,value={0}', inputs.version) || '' }}
+            type=semver,pattern={{version}},enable=${{ github.event_name == 'push' }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'push' && !contains(github.ref_name, '-') }}
+            type=raw,value=latest,enable=${{ github.event_name == 'push' && !contains(github.ref_name, '-') }}
 
       - name: Build and push
         id: build
         uses: docker/build-push-action@v7
         with:
           context: .
-          platforms: ${{ inputs.platforms }}
+          platforms: ${{ inputs.platforms || 'linux/amd64,linux/arm64' }} # a tag push has no inputs
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
