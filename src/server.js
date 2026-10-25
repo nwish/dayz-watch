@@ -215,7 +215,7 @@ async function login(req, res) {
   if (!user) {
     ipLimiter.fail(ip);
     userLimiter.fail(name);
-    console.warn(`${new Date().toISOString()} failed login for "${name}" from ${ip}`);
+    console.warn(`${new Date().toISOString()} failed login for ${JSON.stringify(name)} from ${JSON.stringify(ip)}`); // quoted: a username with a newline must not forge log lines
     return reply(res, 401, { error: "invalid username or password" });
   }
   userLimiter.reset(name);
