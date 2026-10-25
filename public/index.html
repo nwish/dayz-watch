@@ -631,8 +631,10 @@ document.getElementById("add-open").onclick = () => {
   msg.textContent = "";
   dirClose();
   addDialog.showModal();
+  document.documentElement.classList.add("modal-open");
   dirQ.focus();
 };
+addDialog.addEventListener("close", () => document.documentElement.classList.remove("modal-open")); // Escape, ×, backdrop and a successful add all end here
 document.getElementById("add-close").onclick = () => addDialog.close();
 addDialog.addEventListener("click", (e) => {
   if (e.target === addDialog) addDialog.close(); // a click on the backdrop
