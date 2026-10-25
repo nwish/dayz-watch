@@ -1,0 +1,15 @@
+# The app has no npm dependencies, so this only watches what the workflows and the image are built from.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      # Stay on Node 22 until the move to a newer major is a deliberate change (node:sqlite is still experimental).
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
