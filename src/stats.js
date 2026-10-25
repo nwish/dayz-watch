@@ -48,9 +48,13 @@ export class Stats {
         server_id TEXT NOT NULL,
         started   INTEGER NOT NULL,  -- unix seconds
         ended     INTEGER,           -- NULL while the outage is still going on
+        players_after INTEGER,       -- players on the first answered poll; NULL while ongoing (and for rows from before this column)
         PRIMARY KEY (server_id, started)
       ) WITHOUT ROWID;
     `);
+    if (!this.db.prepare("PRAGMA table_info(outages)").all().some((c) => c.name === "players_after")) {
+      this.db.exec("ALTER TABLE outages ADD COLUMN players_after INTEGER");
+    }
     this.insert = this.db.prepare(`
       INSERT INTO samples (server_id, bucket, n, ok, sum, lo, hi, cap) VALUES (?1, ?2, 1, ?3, ?4, ?5, ?5, ?6)
       ON CONFLICT (server_id, bucket) DO UPDATE SET
@@ -88,8 +92,10 @@ export class Stats {
       .run(serverId, Math.floor(at));
   }
 
-  outageEnd(serverId, at) {
-    this.db.prepare("UPDATE outages SET ended = MAX(started, ?2) WHERE server_id = ?1 AND ended IS NULL").run(serverId, Math.floor(at));
+  // players: the count on the first poll that answered. A restarted server is empty (nobody can rejoin yet),
+  // so coming back with players means the server never went down: the monitor just couldn't reach it.
+  outageEnd(serverId, at, players = null) {
+    this.db.prepare("UPDATE outages SET ended = MAX(started, ?2), players_after = ?3 WHERE server_id = ?1 AND ended IS NULL").run(serverId, Math.floor(at), players);
   }
 
   // Call once at startup, before polling resumes. An outage still open from the previous run can't be
@@ -192,10 +198,13 @@ export class Stats {
     // messages, and is classified by length: shorter than the restart window is a normal restart, anything
     // longer an outage. Classifying on read means changing REBOOT_WINDOW_MINUTES re-sorts the history.
     // An ongoing interval runs to now (and turns from restart into outage once it outlasts the window).
+    // A short one that ended with players already online wasn't a restart either (a restarted server comes
+    // back empty), so it counts as an outage. Unknown (still ongoing, or recorded before players_after) is judged on length alone.
     const now = Math.floor(this.now());
-    const intervals = all("SELECT started, ended FROM outages WHERE server_id = ?1 AND (ended IS NULL OR ended >= ?2) ORDER BY started", serverId, from).map((o) => {
+    const intervals = all("SELECT started, ended, players_after FROM outages WHERE server_id = ?1 AND (ended IS NULL OR ended >= ?2) ORDER BY started", serverId, from).map((o) => {
       const to = o.ended ?? now;
-      return { from: o.started, to, ongoing: o.ended === null, kind: to - o.started < this.rebootSeconds ? "reboot" : "outage" };
+      const restarted = to - o.started < this.rebootSeconds && !(o.players_after > 0);
+      return { from: o.started, to, ongoing: o.ended === null, kind: restarted ? "reboot" : "outage" };
     });
     const clipped = (i) => Math.max(0, i.to - Math.max(i.from, from)); // totals count only the part inside the range
     const outs = intervals.filter((i) => i.kind === "outage");

@@ -446,14 +446,14 @@ test("monitor: a restart shorter than offlineAfter x pollMs is caught, timed fro
   const { posts, tick, status } = outageHarness({
     rebootWindowMs: 10 * 60e3,
     onSample: (server, sample) => samples.push(sample),
-    onOutage: (server, kind, at) => events.push([kind, at]),
+    onOutage: (server, kind, at, players) => events.push([kind, at, players]),
   });
   await tick(info(20)); // 30 s
   for (let i = 0; i < 3; i++) await tick(down(), 5_000); // 35 s, 40 s, 45 s
   assert.deepEqual([status().state, status().likelyRestart], ["offline", true]); // 10 s of silence is enough: not 3 x 30 s
   for (let i = 0; i < 10; i++) await tick(down(), 5_000); // rechecks every 5 s until 95 s
   await tick(info(0), 5_000); // 100 s: answers again
-  assert.deepEqual(events, [["start", 35_000], ["end", 100_000]]); // a 65 s restart, to the second (the old rule never saw it)
+  assert.deepEqual(events, [["start", 35_000, undefined], ["end", 100_000, 0]]); // a 65 s restart, back empty, to the second (the old rule never saw it)
   assert.deepEqual(samples, [{ players: 20, maxPlayers: 60 }, null, null, null, { players: 0, maxPlayers: 60 }]); // 13 failed polls, 3 recorded
   assert.deepEqual(posts, []); // and it is a restart, so Discord hears nothing
 });

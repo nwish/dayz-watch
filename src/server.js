@@ -76,7 +76,7 @@ const monitor = new Monitor({
   offlineAfter: OFFLINE_AFTER,
   rebootWindowMs: REBOOT_S * 1000,
   onSample: (s, sample) => stats.record(s.id, sample),
-  onOutage: (s, kind, atMs) => (kind === "start" ? stats.outageStart(s.id, atMs / 1000) : stats.outageEnd(s.id, atMs / 1000)),
+  onOutage: (s, kind, atMs, players) => (kind === "start" ? stats.outageStart(s.id, atMs / 1000) : stats.outageEnd(s.id, atMs / 1000, players)),
 });
 store.list().forEach((s) => monitor.start(s));
 
