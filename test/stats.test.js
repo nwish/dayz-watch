@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Stats, RETENTION_S } from "../src/stats.js";
+import { Stats, RETENTION_S, SCHEMA_VERSION } from "../src/stats.js";
 
 const T0 = Date.UTC(2026, 9, 24, 12, 0, 0) / 1000; // a Saturday, 12:00 UTC
 const up = (players, maxPlayers = 60) => ({ players, maxPlayers });
@@ -261,4 +261,38 @@ test("downtime is deleted with its server, and pruning keeps open outages", () =
   assert.equal(s.query("a", "90d").downtime.intervals.length, 1);
   s.remove("b");
   assert.equal(s.query("b", "90d").downtime.intervals.length, 0);
+});
+
+test("schema: a database from before versioning is upgraded in place, keeping its data; a newer one is refused", async () => {
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const { DatabaseSync } = await import("node:sqlite");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dw-schema-"));
+  const file = path.join(dir, "stats.db");
+  try {
+    // What an older release left behind: no user_version and an outages table without players_after.
+    const old = new DatabaseSync(file);
+    old.exec(`
+      CREATE TABLE samples (server_id TEXT NOT NULL, bucket INTEGER NOT NULL, n INTEGER NOT NULL, ok INTEGER NOT NULL, sum INTEGER NOT NULL, lo INTEGER, hi INTEGER, cap INTEGER, PRIMARY KEY (server_id, bucket)) WITHOUT ROWID;
+      CREATE TABLE outages (server_id TEXT NOT NULL, started INTEGER NOT NULL, ended INTEGER, PRIMARY KEY (server_id, started)) WITHOUT ROWID;
+      INSERT INTO samples VALUES ('a', ${T0}, 1, 1, 7, 7, 7, 60);
+      INSERT INTO outages VALUES ('a', ${T0 - 900}, ${T0 - 600});
+    `);
+    old.close();
+
+    const version = (s) => s.db.prepare("PRAGMA user_version").get().user_version;
+    const s = new Stats(file, { now: () => T0 });
+    assert.equal(version(s), SCHEMA_VERSION);
+    assert.equal(s.query("a", "24h").summary.max, 7);
+    assert.equal(s.query("a", "24h").downtime.intervals.length, 1);
+    s.outageStart("a", T0); // the added column is usable
+    s.outageEnd("a", T0 + 60, 3);
+    s.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION + 1}`);
+    s.close();
+
+    assert.throws(() => new Stats(file), /newer than this app understands/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

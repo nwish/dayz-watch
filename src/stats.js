@@ -21,17 +21,13 @@ export const RANGES = {
 const round1 = (x) => (x == null ? null : Math.round(x * 10) / 10);
 const avg = (sum, ok) => (ok > 0 ? round1(sum / ok) : null);
 
-export class Stats {
-  // file: path to the database, or ":memory:". now(): seconds, injectable for tests.
-  // rebootSeconds: a downtime shorter than this is a normal restart, anything longer an outage.
-  constructor(file, { now = () => Date.now() / 1000, rebootSeconds = 600 } = {}) {
-    this.file = file;
-    this.rebootSeconds = rebootSeconds;
-    this.now = now;
-    this.db = new DatabaseSync(file);
-    this.db.exec(`
-      PRAGMA journal_mode = WAL;
-      PRAGMA synchronous = NORMAL;
+// Schema versions live in the database's PRAGMA user_version. MIGRATIONS[n] upgrades version n to n + 1, so a
+// future change is a new entry here (never an edit to an old one) and every existing database follows it.
+// Version 0 is a database from before versioning existed as well as a brand-new file, which is why step 0 is
+// idempotent and also adds the one column that used to be patched in separately.
+const MIGRATIONS = [
+  (db) => {
+    db.exec(`
       CREATE TABLE IF NOT EXISTS samples (
         server_id TEXT NOT NULL,
         bucket    INTEGER NOT NULL,  -- start of the 5-minute window, unix seconds
@@ -52,8 +48,45 @@ export class Stats {
         PRIMARY KEY (server_id, started)
       ) WITHOUT ROWID;
     `);
-    if (!this.db.prepare("PRAGMA table_info(outages)").all().some((c) => c.name === "players_after")) {
-      this.db.exec("ALTER TABLE outages ADD COLUMN players_after INTEGER");
+    if (!db.prepare("PRAGMA table_info(outages)").all().some((c) => c.name === "players_after")) {
+      db.exec("ALTER TABLE outages ADD COLUMN players_after INTEGER");
+    }
+  },
+];
+export const SCHEMA_VERSION = MIGRATIONS.length;
+
+function migrate(db) {
+  const found = db.prepare("PRAGMA user_version").get().user_version;
+  if (found > SCHEMA_VERSION) {
+    throw new Error(`stats database is schema version ${found}, newer than this app understands (${SCHEMA_VERSION}); upgrade dayz-watch instead of downgrading it`);
+  }
+  for (let v = found; v < SCHEMA_VERSION; v++) {
+    db.exec("BEGIN");
+    try {
+      MIGRATIONS[v](db);
+      db.exec(`PRAGMA user_version = ${v + 1}`); // not parameterizable; v is our own integer
+      db.exec("COMMIT");
+    } catch (e) {
+      db.exec("ROLLBACK");
+      throw e;
+    }
+  }
+}
+
+export class Stats {
+  // file: path to the database, or ":memory:". now(): seconds, injectable for tests.
+  // rebootSeconds: a downtime shorter than this is a normal restart, anything longer an outage.
+  constructor(file, { now = () => Date.now() / 1000, rebootSeconds = 600 } = {}) {
+    this.file = file;
+    this.rebootSeconds = rebootSeconds;
+    this.now = now;
+    this.db = new DatabaseSync(file);
+    try {
+      this.db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;");
+      migrate(this.db);
+    } catch (e) {
+      this.db.close(); // don't leave the file (and its -wal/-shm) locked behind a failed start
+      throw e;
     }
     this.insert = this.db.prepare(`
       INSERT INTO samples (server_id, bucket, n, ok, sum, lo, hi, cap) VALUES (?1, ?2, 1, ?3, ?4, ?5, ?5, ?6)

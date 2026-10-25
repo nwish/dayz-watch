@@ -2,6 +2,7 @@
   "name": "dayz-watch",
   "version": "1.0.0",
   "private": true,
+  "license": "GPL-3.0-only",
   "type": "module",
   "description": "Discord notifications when a DayZ server's player count changes, with a web UI to manage servers",
   "scripts": {

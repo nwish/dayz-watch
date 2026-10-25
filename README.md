@@ -5,6 +5,7 @@
 [![Docker Publish](https://img.shields.io/github/actions/workflow/status/nwish/dayz-watcher/publish.yml?style=flat-square&label=Docker%20Publish)](https://github.com/nwish/dayz-watcher/actions/workflows/publish.yml)
 [![Stars](https://img.shields.io/github/stars/nwish/dayz-watcher?style=flat-square)](https://github.com/nwish/dayz-watcher/stargazers)
 [![Last Commit](https://img.shields.io/github/last-commit/nwish/dayz-watcher?style=flat-square)](https://github.com/nwish/dayz-watcher/commits/main)
+[![License](https://img.shields.io/github/license/nwish/dayz-watcher?style=flat-square)](LICENSE)
 ![Node.js](https://img.shields.io/badge/Node.js-22-339933?style=flat-square&logo=nodedotjs&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white)
@@ -101,6 +102,7 @@ Notes:
 - **Downtime** runs from the first failed poll to the first answered one and is recorded only once the server is declared offline, so blips aren't listed. Restart or outage is decided when the page is read, so changing `REBOOT_WINDOW_MINUTES` re-sorts the history. A downtime still open when the app restarts ends at the last moment it was watched.
 - History starts when the server is added (no backfill).
 - The database uses Node's built-in `node:sqlite`, still labeled experimental in Node 22; the start command silences the warning.
+- `stats.db` carries a schema version and is upgraded automatically on start. A database written by a newer release is refused rather than damaged, so upgrade the app instead of downgrading it.
 
 ## Server overlay
 
@@ -131,3 +133,7 @@ DISCORD_WEBHOOK_URL=... node src/server.js # data in ./data
 ```
 
 The look (palette, background, header, form controls, stat cards) lives in `public/theme.css`, served without login so the login page can use it. Each page's `<style>` keeps only its own layout and loads after the theme. To restyle the app, change the variables at the top of `theme.css`. The server reads `public/` once at startup, so restart it to see edits.
+
+## License
+
+[GPL-3.0](LICENSE).
