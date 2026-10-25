@@ -61,6 +61,8 @@
 
 <div class="bar">
   <div id="ranges" role="group" aria-label="Time range">
+    <button data-range="1h" aria-pressed="false">1 h</button>
+    <button data-range="12h" aria-pressed="false">12 h</button>
     <button data-range="24h" aria-pressed="false">24 h</button>
     <button data-range="7d" aria-pressed="false">7 days</button>
     <button data-range="30d" aria-pressed="false">30 days</button>
@@ -115,7 +117,7 @@ const $ = (id) => document.getElementById(id);
 const NS = "http://www.w3.org/2000/svg";
 const id = location.pathname.split("/").pop();
 const tz = -new Date().getTimezoneOffset(); // minutes east of UTC
-const RANGES = ["24h", "7d", "30d", "90d"];
+const RANGES = ["1h", "12h", "24h", "7d", "30d", "90d"];
 let range = new URLSearchParams(location.search).get("range");
 if (!RANGES.includes(range)) range = "7d";
 let data = null;
@@ -255,11 +257,12 @@ function drawTimeline(d) {
   for (let v = 0; v <= top; v += step) {
     axis.append(s("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v) }), s("text", { x: m.l - 6, y: y(v) + 4, "text-anchor": "end" }, String(v)));
   }
-  const baseStep = { "24h": 4 * 3600, "7d": 86400, "30d": 5 * 86400, "90d": 15 * 86400 }[d.range];
+  const baseStep = { "1h": 900, "12h": 3600, "24h": 4 * 3600, "7d": 86400, "30d": 5 * 86400, "90d": 15 * 86400 }[d.range];
   const tickStep = baseStep * Math.max(1, Math.ceil(72 / ((baseStep / (d.to - d.from)) * pw))); // keep labels >= ~72px apart
   const off = tz * 60;
   for (let t = Math.ceil((d.from + off) / tickStep) * tickStep - off; t < d.to; t += tickStep) {
-    const label = d.range === "24h" ? new Date(t * 1000).toLocaleTimeString(undefined, { hour: "numeric" }) : new Date(t * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    const time = new Date(t * 1000);
+    const label = d.range === "1h" ? time.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : ["12h", "24h"].includes(d.range) ? time.toLocaleTimeString(undefined, { hour: "numeric" }) : time.toLocaleDateString(undefined, { month: "short", day: "numeric" });
     axis.append(s("line", { x1: x(t), x2: x(t), y1: m.t, y2: m.t + ph, opacity: ".45" }), s("text", { x: x(t), y: H - 7, "text-anchor": "middle" }, label));
   }
   svg.append(axis);
@@ -345,7 +348,7 @@ function drawTimeline(d) {
 // ---- Daily trend ----
 function drawDaily(d) {
   const sec = $("daily-sec");
-  sec.hidden = d.range === "24h" || !d.daily.length;
+  sec.hidden = ["1h", "12h", "24h"].includes(d.range) || !d.daily.length;
   if (sec.hidden) return;
   const box = $("daily");
   box.replaceChildren();
@@ -388,7 +391,7 @@ function drawDaily(d) {
 // ---- Weekday x hour heatmap ----
 function drawHeat(d) {
   const sec = $("heat-sec");
-  sec.hidden = d.range === "24h" || !d.heatmap.length;
+  sec.hidden = ["1h", "12h", "24h"].includes(d.range) || !d.heatmap.length;
   if (sec.hidden) return;
   $("tzname").textContent = `(${Intl.DateTimeFormat().resolvedOptions().timeZone}, average players)`;
   const cell = new Map(d.heatmap.map((c) => [`${c.dow}:${c.hr}`, c.avg]));
@@ -419,11 +422,13 @@ function render(d) {
   for (const b of document.querySelectorAll("#ranges button")) b.setAttribute("aria-pressed", String(b.dataset.range === d.range));
   const sm = d.summary;
   const spanDays = (d.to - d.from) / 86400;
+  const spanHours = Math.round((d.to - d.from) / 3600);
   let note = "";
   if (sm.since == null) note = "No data yet. History is recorded on every poll, so charts fill in shortly.";
   else if (sm.since > d.from + Math.max(3600, (d.to - d.from) * 0.03)) {
     const have = (d.to - sm.since) / 86400;
-    note = `Tracking since ${fmtStamp(sm.since)}. Only ${have < 1 ? `${Math.max(1, Math.round(have * 24))} h` : `${Math.round(have * 10) / 10} days`} of the ${spanDays < 2 ? "24 h" : `${Math.round(spanDays)}-day`} window collected so far.`;
+    const window = spanDays < 2 ? `${spanHours} h` : `${Math.round(spanDays)}-day`;
+    note = `Tracking since ${fmtStamp(sm.since)}. Only ${have < 1 ? `${Math.max(1, Math.round(have * 24))} h` : `${Math.round(have * 10) / 10} days`} of the ${window} window collected so far.`;
   }
   $("notice").textContent = note;
   $("updated").textContent = `Updated ${fmtTime(Date.now() / 1000)}`;

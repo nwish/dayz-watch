@@ -213,6 +213,8 @@ test("stats: API and page require login, validate input, 404 unknown servers, an
   assert.ok(["unknown", "online", "offline"].includes(view.state) && Number.isInteger(view.failures));
   assert.equal("ping" in view, false);
   assert.equal((await c.call("GET", `/api/servers/${id}/stats`)).json.range, "7d"); // default
+  assert.equal((await c.call("GET", `/api/servers/${id}/stats?range=1h`)).json.range, "1h");
+  assert.equal((await c.call("GET", `/api/servers/${id}/stats?range=12h`)).json.range, "12h");
   assert.equal((await c.call("GET", `/api/servers/${id}/stats?range=1y`)).status, 400);
   assert.equal((await c.call("GET", `/api/servers/${id}/stats?tz=garbage`)).status, 200); // bad tz falls back to UTC
   assert.equal((await c.call("GET", "/api/servers/nope/stats")).status, 404);

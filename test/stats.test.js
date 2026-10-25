@@ -71,6 +71,23 @@ test("ranges select only data inside their window and coarsen resolution", () =>
   assert.throws(() => s.query("a", "1y"), (e) => e.status === 400);
 });
 
+test("short ranges include only their matching window at five-minute resolution", () => {
+  const { s, at } = harness();
+  at(T0 - 13 * 3600);
+  s.record("a", up(50));
+  at(T0 - 11 * 3600);
+  s.record("a", up(40));
+  at(T0 - 3300);
+  s.record("a", up(10));
+  at(T0);
+  s.record("a", up(20));
+
+  const oneHour = s.query("a", "1h");
+  assert.deepEqual([oneHour.step, oneHour.series.length, oneHour.summary.max], [300, 2, 20]);
+  const twelveHours = s.query("a", "12h");
+  assert.deepEqual([twelveHours.step, twelveHours.series.length, twelveHours.summary.max], [300, 3, 40]);
+});
+
 test("daily buckets, weekday and hour follow the viewer's timezone offset", () => {
   const { s, at } = harness();
   at(Date.UTC(2026, 9, 24, 23, 30) / 1000); // Sat 23:30 UTC

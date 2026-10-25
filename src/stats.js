@@ -10,6 +10,8 @@ export const RETENTION_S = 90 * 86400;
 
 // span: how far back; step: chart resolution (a multiple of BUCKET_S, ~300 points per chart).
 export const RANGES = {
+  "1h": { span: 3600, step: 300 },
+  "12h": { span: 12 * 3600, step: 300 },
   "24h": { span: 86400, step: 300 },
   "7d": { span: 7 * 86400, step: 1800 },
   "30d": { span: 30 * 86400, step: 7200 },
