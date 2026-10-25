@@ -4,8 +4,31 @@ import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 
-const scrypt = promisify(crypto.scrypt);
+const scryptRaw = promisify(crypto.scrypt);
 const KEYLEN = 64;
+
+// scrypt runs on libuv's small thread pool (4 threads, shared with DNS lookups and file I/O). Unauthenticated
+// logins reach it, so only a couple run at once and the queue is bounded: a flood gets a quick 503 instead of
+// starving everything else, and costs nothing beyond the queue.
+const MAX_HASHING = 2;
+const MAX_WAITING = 16;
+let hashing = 0;
+const waiting = [];
+async function scrypt(...args) {
+  if (hashing >= MAX_HASHING) {
+    if (waiting.length >= MAX_WAITING) throw new AuthError("server busy, try again in a moment", 503);
+    await new Promise((resolve) => waiting.push(resolve));
+  } else {
+    hashing++;
+  }
+  try {
+    return await scryptRaw(...args);
+  } finally {
+    const next = waiting.shift();
+    if (next) next(); // hand the slot straight to the next waiter
+    else hashing--;
+  }
+}
 
 export class AuthError extends Error {
   constructor(message, status = 400) {

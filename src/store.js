@@ -56,7 +56,7 @@ export class Store {
 
   #save() {
     const tmp = `${this.file}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify({ servers: this.servers }, null, 2));
+    fs.writeFileSync(tmp, JSON.stringify({ servers: this.servers }, null, 2), { mode: 0o600 }); // holds Discord webhook URLs
     fs.renameSync(tmp, this.file);
   }
 }

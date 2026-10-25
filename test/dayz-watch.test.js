@@ -8,31 +8,7 @@ import { queryInfo } from "../src/a2s.js";
 import { Monitor, formatDuration } from "../src/monitor.js";
 import { Stats } from "../src/stats.js";
 import { Store, validateServerInput } from "../src/store.js";
-
-const cs = (s) => Buffer.from(`${s}\0`);
-
-// Fake A2S server that demands a challenge before answering, like real DayZ servers.
-const KEYWORDS = "battleye,no3rd,shard000,lqs0,etm3.290000,entm3.290000,isDLC4,06:07";
-function fakeA2S(getPlayers) {
-  return new Promise((resolve) => {
-    const udp = dgram.createSocket("udp4");
-    udp.on("message", (m, r) => {
-      if (m.length === 25) return udp.send(Buffer.from([0xff, 0xff, 0xff, 0xff, 0x41, 1, 2, 3, 4]), r.port, r.address);
-      assert.deepEqual([...m.subarray(25)], [1, 2, 3, 4]);
-      const port = Buffer.alloc(2);
-      port.writeUInt16LE(11300);
-      const body = Buffer.concat([
-        Buffer.from([0xff, 0xff, 0xff, 0xff, 0x49, 17]),
-        cs("TestSrv"), cs("nasdara"), cs("dayz"), cs("game"),
-        Buffer.from([0, 0, getPlayers(), 60, 0, 0x64, 0x77, 0, 0]), // appid, players, max, bots, dedicated, windows, public, no VAC
-        cs("1.30.164200"),
-        Buffer.from([0xa0]), port, cs(KEYWORDS), // EDF: game port + keywords
-      ]);
-      udp.send(body, r.port, r.address);
-    });
-    udp.bind(0, "127.0.0.1", () => resolve(udp));
-  });
-}
+import { fakeA2S } from "./fake-a2s.js";
 
 test("queryInfo completes challenge handshake and parses info and DayZ keyword flags", async () => {
   const udp = await fakeA2S(() => 7);
@@ -50,10 +26,27 @@ test("queryInfo completes challenge handshake and parses info and DayZ keyword f
       battleye: true,
       thirdPerson: false,
       gameTime: "06:07",
+      isDayZ: true,
     });
   } finally {
     udp.close();
   }
+});
+
+test("queryInfo tells DayZ from other games by app id or folder/game name", async () => {
+  const is = async (opts) => {
+    const udp = await fakeA2S(() => 1, opts);
+    try {
+      return (await queryInfo("127.0.0.1", udp.address().port)).isDayZ;
+    } finally {
+      udp.close();
+    }
+  };
+  assert.equal(await is({ folder: "dayz", game: "game", appId: 0 }), true); // names only
+  assert.equal(await is({ folder: "x", game: "DayZ", appId: 0 }), true);
+  assert.equal(await is({ folder: "x", game: "y", gameId: 221100n }), true); // the 64-bit game id only
+  assert.equal(await is({ folder: "x", game: "y", gameId: 221100n | (1n << 40n) }), true); // upper bits are not part of the app id
+  assert.equal(await is({ folder: "csgo", game: "Counter-Strike", appId: 730, gameId: 730n }), false);
 });
 
 test("queryInfo rejects on timeout", async () => {
