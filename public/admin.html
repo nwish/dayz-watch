@@ -16,6 +16,8 @@
   .bar .spacer { flex: 1; }
   .stat .v { font-size: 1.55rem; }
   .scroll { overflow-x: auto; }
+  .scroll.fixed { max-height: 15rem; overflow-y: auto; }
+  .scroll.fixed th { position: sticky; top: 0; z-index: 1; background: var(--panel); box-shadow: 0 1px 0 var(--hl); }
   th { font-size: .75rem; white-space: nowrap; }
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   .gone { color: var(--warn); }
@@ -57,7 +59,7 @@
 <section>
   <div class="bar"><h2>Watcher query RTT</h2></div>
   <p class="muted">A2S response time from this app host, not player latency. Resets when the app restarts.</p>
-  <div class="scroll">
+  <div class="scroll fixed">
     <table id="rtt-servers">
       <thead><tr><th>Server</th><th class="num">Latest</th><th class="num">Average</th></tr></thead>
       <tbody></tbody>
@@ -74,7 +76,7 @@
   </div>
   <div class="cards" id="db-cards"></div>
   <h3>History per server</h3>
-  <div class="scroll">
+  <div class="scroll fixed">
     <table id="db-servers">
       <thead><tr><th>Server</th><th class="num">Buckets</th><th class="num">Polls</th><th class="num">Answered</th><th>First sample</th><th>Last sample</th><th class="num">Span</th></tr></thead>
       <tbody></tbody>
