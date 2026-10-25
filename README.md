@@ -87,6 +87,8 @@ The list comes from the DZSA Launcher's public endpoint (`https://dayzsalauncher
 
 ## Statistics
 
+![dayz-watch stats page](docs/stats.png)
+
 Every poll of every server is recorded and 90 days are kept (pruned hourly). A row's **Stats** button opens `/servers/<id>`, showing the last 12 hours by default (change it with the buttons or `?range=1h|12h|24h|7d|30d|90d`):
 
 - **Summary cards:** current count (or *Restarting?* / *Offline*), average, peak (and when), lowest, share of polls answered, outage and restart counts, busiest weekday and hour.
