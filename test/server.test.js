@@ -25,7 +25,7 @@ before(async () => {
   const port = await freePort();
   base = `http://127.0.0.1:${port}`;
   proc = spawn("node", ["src/server.js"], {
-    env: { ...process.env, PORT: String(port), DATA_DIR: dataDir, ADMIN_PASSWORD: ADMIN_PW },
+    env: { ...process.env, PORT: String(port), DATA_DIR: dataDir, ADMIN_PASSWORD: ADMIN_PW, ALLOW_PRIVATE_ADDRESSES: "true" },
     stdio: ["ignore", "pipe", "inherit"],
   });
   await new Promise((resolve, reject) => {
@@ -267,7 +267,7 @@ test("AUTH_DISABLED bypasses login with an implicit local admin without weakenin
   const port = await freePort();
   const disabledBase = `http://127.0.0.1:${port}`;
   const disabled = spawn("node", ["src/server.js"], {
-    env: { ...process.env, PORT: String(port), DATA_DIR: disabledDataDir, AUTH_DISABLED: "true" },
+    env: { ...process.env, PORT: String(port), DATA_DIR: disabledDataDir, AUTH_DISABLED: "true", ALLOW_PRIVATE_ADDRESSES: "true" },
     stdio: ["ignore", "pipe", "inherit"],
   });
   try {

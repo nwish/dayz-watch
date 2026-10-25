@@ -1,5 +1,6 @@
 // Minimal Steam A2S_INFO client (UDP). DayZ answers on game port + 1.
 import dgram from "node:dgram";
+import { resolveHost } from "./netguard.js";
 
 const HEADER = Buffer.from([0xff, 0xff, 0xff, 0xff]);
 const A2S_INFO = Buffer.concat([HEADER, Buffer.from([0x54]), Buffer.from("Source Engine Query\0")]);
@@ -93,11 +94,13 @@ export function parseInfo(res) {
   };
 }
 
-export async function queryInfo(host, port, { timeoutMs = 3000 } = {}) {
-  let res = await send(host, port, A2S_INFO, timeoutMs);
+// allowPrivate: also query loopback / LAN / link-local addresses (the app turns this off unless told otherwise).
+export async function queryInfo(host, port, { timeoutMs = 3000, allowPrivate = true } = {}) {
+  const ip = await resolveHost(host, { allowPrivate });
+  let res = await send(ip, port, A2S_INFO, timeoutMs);
   if (res[4] === 0x41) {
     // Server demands a challenge: resend with the 4 challenge bytes appended.
-    res = await send(host, port, Buffer.concat([A2S_INFO, res.subarray(5, 9)]), timeoutMs);
+    res = await send(ip, port, Buffer.concat([A2S_INFO, res.subarray(5, 9)]), timeoutMs);
   }
   return parseInfo(res);
 }

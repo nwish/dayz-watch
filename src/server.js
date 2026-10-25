@@ -6,7 +6,8 @@ import { fileURLToPath } from "node:url";
 import { queryInfo } from "./a2s.js";
 import { Directory, DEFAULT_DIRECTORY_URL } from "./directory.js";
 import { Stats } from "./stats.js";
-import { Store } from "./store.js";
+import { Store, validateServerInput } from "./store.js";
+import { resolveHost } from "./netguard.js";
 import { Monitor } from "./monitor.js";
 import { AuthError, FailureLimiter, SessionStore, UserStore, bootstrapAdmin, validatePassword } from "./auth.js";
 
@@ -21,6 +22,7 @@ const REBOOT_S = (Number.isFinite(rebootMinutes) ? Math.max(0, rebootMinutes) : 
 const DEFAULT_WEBHOOK = process.env.DISCORD_WEBHOOK_URL || null;
 const directory = new Directory({ url: process.env.DIRECTORY_URL || DEFAULT_DIRECTORY_URL });
 const TRUST_PROXY = process.env.TRUST_PROXY === "true";
+const ALLOW_PRIVATE = process.env.ALLOW_PRIVATE_ADDRESSES === "true"; // let servers be on loopback / the LAN
 const COOKIE_SECURE = process.env.COOKIE_SECURE === "true";
 const AUTH_DISABLED = process.env.AUTH_DISABLED === "true";
 const AUTH_DISABLED_USER = Object.freeze({ username: "local", role: "admin" });
@@ -68,7 +70,7 @@ stats.closeOpenOutages(); // an outage left open by the previous run can't be fo
 stats.prune();
 setInterval(() => stats.prune(), 60 * 60e3).unref(); // keep 90 days
 const monitor = new Monitor({
-  query: queryInfo,
+  query: (host, port) => queryInfo(host, port, { allowPrivate: ALLOW_PRIVATE }),
   defaultWebhook: DEFAULT_WEBHOOK,
   pollMs: POLL_MS,
   recheckMs: RECHECK_MS,
@@ -272,7 +274,15 @@ async function api(req, res, url, session) {
     return reply(res, 200, { servers: await directory.search(url.searchParams.get("q"), Number(url.searchParams.get("limit"))) });
   }
   if (method === "POST" && pathname === "/api/servers") {
-    const s = store.add(await readJson(req));
+    const input = await readJson(req);
+    if (!ALLOW_PRIVATE) {
+      const { host } = validateServerInput(input);
+      // A name that doesn't resolve yet is fine (the server may be down); only a private answer is refused.
+      await resolveHost(host).catch((e) => {
+        if (/private address/.test(e.message)) throw new Error(`invalid host: ${e.message}`);
+      });
+    }
+    const s = store.add(input);
     monitor.start(s);
     return reply(res, 201, serverView(s));
   }
