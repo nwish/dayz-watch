@@ -35,6 +35,12 @@ export async function postWebhook(url, content) {
   if (!r.ok) throw new Error(`webhook ${r.status} ${await r.text()}`);
 }
 
+function pollSlot(id, pollMs) {
+  let hash = 0;
+  for (const char of id) hash = Math.imul(hash, 31) + char.charCodeAt(0) | 0;
+  return (hash >>> 0) % pollMs;
+}
+
 export class Monitor {
   // query(host, port) -> {name,map,players,maxPlayers}; notify(url, content) -> Promise
   // onSample(server, {players,maxPlayers} | null): called once per finished poll (null = it failed).
@@ -94,16 +100,29 @@ export class Monitor {
       offlineSince: null,
       offlineNotified: false, // an "offline" alert went out, so a "back online" one is owed
       lastFailSampleAt: 0, // when a failed poll was last written to the history (rechecks are throttled)
+      pollSlotMs: pollSlot(server.id, this.pollMs), // keeps healthy servers from querying in lockstep
     };
     this.state.set(server.id, st);
     return st;
+  }
+
+  // Healthy servers use a stable slot in the normal poll interval. This spreads queries and lets each
+  // server's UI pill animate when that specific server has refreshed. Failures bypass the slot for fast rechecks.
+  #healthyPollDelay(st) {
+    const now = this.now();
+    let next = Math.floor(now / this.pollMs) * this.pollMs + st.pollSlotMs;
+    if (next <= now + Math.min(1_000, this.pollMs / 2)) next += this.pollMs;
+    return next - now;
   }
 
   start(server) {
     const st = this.track(server);
     const loop = async () => {
       await this.tick(server);
-      if (!st.stopped) st.timer = setTimeout(loop, this.nextPollDelay(server.id));
+      if (!st.stopped) {
+        const delay = st.failures === 0 ? this.#healthyPollDelay(st) : this.nextPollDelay(server.id);
+        st.timer = setTimeout(loop, delay);
+      }
     };
     loop();
   }

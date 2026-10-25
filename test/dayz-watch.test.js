@@ -193,6 +193,30 @@ test("monitor: reports every finished poll to onSample, and a throwing recorder 
   assert.equal(seen.length, 3);
 });
 
+test("monitor: healthy servers occupy stable independent poll slots after their baseline", async () => {
+  const scheduled = [];
+  const originalSetTimeout = globalThis.setTimeout;
+  const m = new Monitor({
+    query: async () => info(1),
+    notify: async () => {},
+    pollMs: 10_000,
+    now: () => 0,
+  });
+  const servers = ["alpha", "beta", "omega"].map((id) => ({ id, host: "h", queryPort: 1, webhookUrl: null }));
+  globalThis.setTimeout = (callback, delay) => {
+    scheduled.push(delay);
+    return { callback, delay };
+  };
+  try {
+    servers.forEach((server) => m.start(server));
+    await new Promise(setImmediate);
+    assert.deepEqual(scheduled, [9_918, 10_272, 8_401]);
+  } finally {
+    servers.forEach(({ id }) => m.stop(id));
+    globalThis.setTimeout = originalSetTimeout;
+  }
+});
+
 // Fake-clock harness: every tick() first advances 30 s, like a real poll interval.
 function outageHarness({ webhook = "https://default", offlineAfter = 3, rebootWindowMs = 0, pollMs = 30_000, recheckMs = 5_000, notify, onOutage, onSample } = {}) {
   let t = 0;

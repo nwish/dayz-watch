@@ -229,7 +229,7 @@ function statusPill(s, defaultWebhook) {
     label = "Alert error";
     tone = "warning";
   }
-  const polled = tone === "online" && s.checkedAt && seenChecks.get(s.id) !== s.checkedAt;
+  const polled = tone === "online" && s.checkedAt && seenChecks.has(s.id) && seenChecks.get(s.id) !== s.checkedAt;
   if (s.checkedAt) seenChecks.set(s.id, s.checkedAt);
   const pill = document.createElement("button");
   pill.type = "button";
@@ -739,7 +739,7 @@ $("pw-form").addEventListener("submit", async (e) => {
   $("pw-form").username.value = me.username; // lets password managers update the right entry
   $("admin-link").hidden = me.role !== "admin";
   load();
-  setInterval(load, 3000);
+  setInterval(load, 1000);
 })();
 </script>
 </body>
