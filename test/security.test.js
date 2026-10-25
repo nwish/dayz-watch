@@ -7,6 +7,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { isPrivateAddress, resolveHost } from "../src/netguard.js";
 import { queryInfo } from "../src/a2s.js";
+import { hashPassword } from "../src/auth.js";
 import { postWebhook } from "../src/monitor.js";
 import { Store } from "../src/store.js";
 
@@ -51,6 +52,14 @@ test("servers.json (it holds webhook URLs) is written readable by the owner only
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("password hashing: a flood is capped and queued, extra requests get 503, and it recovers", async () => {
+  const attempts = await Promise.allSettled(Array.from({ length: 40 }, () => hashPassword("some long password")));
+  const busy = attempts.filter((r) => r.status === "rejected");
+  assert.equal(attempts.length - busy.length, 18); // 2 running + 16 queued
+  assert.ok(busy.every((r) => r.reason.status === 503));
+  assert.match(await hashPassword("after the flood"), /^scrypt\$/); // the slots were all handed back
 });
 
 test("server: private addresses can't be added unless ALLOW_PRIVATE_ADDRESSES is set", async () => {
