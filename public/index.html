@@ -51,6 +51,10 @@
   tr.clickable:hover { background: var(--panel); box-shadow: inset 3px 0 var(--hl); }
   #overlay { --art: #1a1d23; --border: #333840; --text: #e6e6e6; --muted: #9aa0a6; --accent: #c9d1d9; --backdrop: rgba(0,0,0,.78); --btn-bg: #1e2127; --ok: #7ee787; --err: #ff7b72; position: fixed; inset: 0; background: var(--backdrop); display: flex; align-items: center; justify-content: center; z-index: 10; }
   #overlay[hidden] { display: none; }
+  /* While the detail card is open the page behind it must not scroll; the gutter stays reserved so the layout doesn't jump. */
+  html { scrollbar-gutter: stable; }
+  html.modal-open { overflow: hidden; }
+  #overlay { overscroll-behavior: contain; }
   .card { position: relative; width: min(680px, 92vw); max-height: 92vh; overflow: auto; background: var(--art); color: var(--text); border: 1px solid var(--border); border-radius: 12px; padding: 2rem 2.2rem; }
   .card h2 { margin: 0 2rem .5rem 0; font-size: 1.15rem; font-weight: 600; color: var(--accent); font-family: inherit; text-transform: none; letter-spacing: normal; } /* the server name, not a page heading */
   .close { position: absolute; top: .8rem; right: .8rem; width: 2.2rem; height: 2.2rem; padding: 0; font-size: 1.4rem; line-height: 1; }
@@ -471,12 +475,14 @@ function openOverlay(s) {
   applyTheme(s.info?.map, s.info?.gameTime);
   card.classList.remove("flash-up", "flash-down");
   overlay.hidden = false;
+  document.documentElement.classList.add("modal-open");
   renderOverlay(s);
 }
 
 function closeOverlay() {
   openId = null;
   overlay.hidden = true;
+  document.documentElement.classList.remove("modal-open");
 }
 
 function renderOverlay(s) {
