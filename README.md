@@ -13,25 +13,45 @@
 
 ![dayz-watch server list](docs/screenshot.png)
 
-Watches DayZ servers from a small web UI and, if a Discord webhook is configured, posts whenever a server's player count changes.
+A dependency-free web app that watches and polls basic stats on DayZ servers via the Steam A2S_INFO query (UDP).  Comes with a web UI to manage and view monitored servers.  
 
-It polls each server with the Steam A2S_INFO query (UDP). DayZ answers on **game port + 1**: for a server on 11300, add query port `11301`.
+Click/tap on a server from the main list to open a live stats view with player count change alerts.  Supports per-server Discord webhooks (or a default from an environment variable) to post player count change alerts.
 
-## Run with Docker
+## Run with Docker Compose
 
+Currently on `1.0.0-rc1` only - there is no `latest` tag yet.
+
+** compose.yaml **
 ```sh
-cp compose.yaml.example compose.yaml   # git ignores compose.yaml, so local edits stay out of the repo
-cp .env.example .env   # optional: set ADMIN_PASSWORD, DISCORD_WEBHOOK_URL, ...
-docker compose up -d --build
-docker compose logs dayz-watcher   # shows the generated admin password if you didn't set one
+services:
+  dayz-watcher:
+    image: ghcr.io/nwish/dayz-watcher:1.0.0-rc1
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-8080}:8080"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      PORT: "8080"
+    volumes:
+      - dayz-watch-data:/data
+
+volumes:
+  dayz-watch-data:
 ```
 
+Then `docker compose up -d`
+
 Open `http://<host>:8080` and sign in. Servers and users are managed in the UI.
+
+** .env **
+See [.env.example](.env.example) - copy to `.env` and edit to your liking.
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `ADMIN_USERNAME` | `admin` | First admin's username. Only used while no users exist. |
-| `ADMIN_PASSWORD` | generated | First admin's password (10-128 chars). Only used while no users exist; if empty, a random one is printed once in the container log. |
+| `ADMIN_PASSWORD` | generated | First admin's password. Only used while no users exist; if empty, a random one is printed once in the container log. |
 | `AUTH_DISABLED` | `false` | `true` bypasses login on a trusted network: every visitor is the built-in `local` admin and existing accounts are ignored. |
 | `ALLOW_PRIVATE_ADDRESSES` | `false` | Servers on loopback, LAN, link-local or other non-public IPv4 addresses are refused, on adding and on every poll. Set `true` only to monitor a server on your own network. |
 | `TRUST_PROXY` | `false` | `true` behind a reverse proxy: the client IP for rate limiting comes from the last `X-Forwarded-For` entry, and `X-Forwarded-Proto`/`-Host` are honored. Enable only if clients can reach the container *only* through that proxy, or they can spoof their IP. |
@@ -67,7 +87,7 @@ The container needs outbound UDP to the query ports and outbound HTTPS to Discor
 - A failed query (timeout, DNS) is shown in the UI and isn't a change.
 - Status pills: **Online**, **Checking**, **Restarting**, **Offline** or **Alert error**. Hover or tap one for the full message.
 
-### Offline servers
+### Offline servers, restars & outages
 
 A server is **offline** after `OFFLINE_AFTER` failed polls in a row; one dropped packet is a blip and shows as `Query failing (1/3)`. After the first failure the server is rechecked every `RECHECK_SECONDS`, so a restart under two minutes is still noticed and timed to within seconds. Rechecks stop once it has been dark longer than the restart window. What happens next depends on how long it stays dark (`REBOOT_WINDOW_MINUTES`):
 
@@ -77,7 +97,7 @@ A server is **offline** after `OFFLINE_AFTER` failed polls in a row; one dropped
 - A server that has never answered since the app started (a mistyped host or port) shows offline but is **not** announced, so a typo can't ping your channel. An outage already underway when the app restarts isn't announced again.
 - The overlay dims the count and mutes alerts while a server is dark.
 
-## Finding servers to add
+## Adding servers to monitor
 
 *+ Add server* opens a form with a search box. Type part of a name, a number (e.g. `2305`), a map or an IP (`ip` or `ip:port`) and pick a result to fill in host and query port. All words must match; name-prefix matches rank first, then busier servers. Typing host and port by hand still works.
 
@@ -85,7 +105,7 @@ Either way, a server is queried once before it is saved: it must answer and iden
 
 The list comes from the DZSA Launcher's public endpoint (`https://dayzsalauncher.com/api/v2/launcher/servers/dayz`, ~10k servers, no API key). The container downloads it (~13 MB) on the first search, keeps a trimmed copy in memory and refreshes it every 10 minutes; if a refresh fails it keeps the old list, and if the first download fails manual entry still works. It's a community endpoint with no SLA.
 
-## Statistics
+## Statistics collection & view
 
 ![dayz-watch stats page](docs/stats.png)
 
