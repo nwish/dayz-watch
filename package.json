@@ -4,7 +4,7 @@
   "private": true,
   "license": "GPL-3.0-only",
   "type": "module",
-  "description": "Discord notifications when a DayZ server's player count changes, with a web UI to manage servers",
+  "description": "Web app that watches and polls basic stats on DayZ servers",
   "scripts": {
     "start": "node --disable-warning=ExperimentalWarning src/server.js",
     "test": "node --test \"test/*.test.js\""
