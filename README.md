@@ -21,7 +21,7 @@ Click/tap on a server from the main list to open a live stats view with player c
 
 Currently on `1.0.0-rc1` only - there is no `latest` tag yet.
 
-** compose.yaml **
+**compose.yaml**
 ```sh
 services:
   dayz-watcher:
@@ -45,7 +45,7 @@ Then `docker compose up -d`
 
 Open `http://<host>:8080` and sign in. Servers and users are managed in the UI.
 
-** .env **
+**.env**
 See [.env.example](.env.example) - copy to `.env` and edit to your liking.
 
 | Variable | Default | Meaning |
