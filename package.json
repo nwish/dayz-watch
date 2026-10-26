@@ -1,8 +1,9 @@
 {
   "name": "dayz-watch",
-  "version": "1.0.0",
+  "version": "1.0.0-rc1",
   "private": true,
   "license": "GPL-3.0-only",
+  "repository": "https://github.com/nwish/dayz-watch",
   "type": "module",
   "description": "Web app that watches and polls basic stats on DayZ servers",
   "scripts": {

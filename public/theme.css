@@ -29,6 +29,11 @@ h1 img { width: 1.9rem; height: 1.9rem; }
 header { display: flex; justify-content: space-between; align-items: center; padding-bottom: .8rem; margin-bottom: 1.2rem; border-bottom: 1px solid var(--line); background: linear-gradient(var(--blood), var(--blood)) left bottom / 4.5rem 3px no-repeat border-box; }
 nav { display: flex; gap: .6rem; align-items: center; }
 
+/* Version footer, injected before </body> by the server. */
+.app-footer { margin-top: 2rem; padding-top: .8rem; border-top: 1px solid var(--line); text-align: center; font-size: .8rem; }
+.app-footer a { color: var(--dim); text-decoration: none; }
+.app-footer a:hover { color: var(--hl); text-decoration: underline; }
+
 /* Text state colours. */
 .muted { color: var(--dim); }
 .err { color: var(--err); }

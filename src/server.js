@@ -27,7 +27,14 @@ const COOKIE_SECURE = process.env.COOKIE_SECURE === "true";
 const AUTH_DISABLED = process.env.AUTH_DISABLED === "true";
 const AUTH_DISABLED_USER = Object.freeze({ username: "local", role: "admin" });
 const COOKIE_NAME = "dw_session";
-const page = (name) => fs.readFileSync(fileURLToPath(new URL(`../public/${name}`, import.meta.url)));
+const pkg = JSON.parse(fs.readFileSync(fileURLToPath(new URL("../package.json", import.meta.url)), "utf8"));
+const REPO_URL = pkg.repository.replace(/\/$/, "");
+// package.json is the one place the version lives; the footer on every page links to that version's release page.
+const FOOTER = `<footer class="app-footer"><a href="${REPO_URL}/releases/tag/v${pkg.version}" target="_blank" rel="noopener noreferrer">dayz-watch v${pkg.version}</a></footer>\n`;
+const page = (name) => {
+  const file = fs.readFileSync(fileURLToPath(new URL(`../public/${name}`, import.meta.url)));
+  return name.endsWith(".html") ? file.toString("utf8").replace("</body>", () => `${FOOTER}</body>`) : file;
+};
 const INDEX_HTML = page("index.html");
 const LOGIN_HTML = page("login.html");
 const FAVICON = page("favicon.svg");

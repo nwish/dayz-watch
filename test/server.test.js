@@ -367,6 +367,16 @@ test("theme.css needs no login (the login page uses it), is served as CSS, and r
   assert.match(first.headers.get("content-security-policy"), /style-src 'self'/); // the stylesheet is same-origin, so the page may load it
 });
 
+test("every page footer shows the package version and links to that version's release page", async () => {
+  const pkg = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  const link = `<a href="${pkg.repository}/releases/tag/v${pkg.version}" target="_blank" rel="noopener noreferrer">dayz-watch v${pkg.version}</a>`;
+  assert.match(pkg.version, /^\d+\.\d+\.\d+/);
+  const login = await fetch(`${base}/login`);
+  assert.ok((await login.text()).includes(link), "login page footer");
+  const admin = await loginAs("admin", ADMIN_PW);
+  for (const p of ["/", "/admin", "/account"]) assert.ok((await admin.call("GET", p)).text.includes(link), `${p} footer`);
+});
+
 // Keep last: it locks this machine's IP out of /api/login for 15 minutes.
 test("rate limit: one IP guessing many usernames gets locked out too", async () => {
   const c = client();
