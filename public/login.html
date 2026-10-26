@@ -10,7 +10,7 @@
   /* Centre the card; theme.css provides the standard page column that this replaces. */
   body { min-height: 100vh; max-width: none; margin: 0; padding: 0; display: flex; align-items: center; justify-content: center; }
   .app-footer { position: fixed; left: 0; right: 0; bottom: 1rem; margin: 0; padding: 0; border: 0; }
-  main { width: min(360px, 90vw); background: var(--panel); border: 1px solid var(--line); border-top: 3px solid var(--blood); border-radius: 3px; padding: 2rem; box-shadow: 0 12px 40px #000a; }
+  main { box-sizing: border-box; width: min(360px, calc(100vw - 2rem)); background: var(--panel); border: 1px solid var(--line); border-top: 3px solid var(--blood); border-radius: 3px; padding: 2rem; box-shadow: 0 12px 40px #000a; }
   .logo { display: block; width: 3.6rem; height: 3.6rem; margin: 0 auto .8rem; }
   h1 { letter-spacing: .12em; text-align: center; margin: 0 0 1.6rem; display: block; }
   label { display: block; color: var(--dim); margin: 0 0 .3rem; }
