@@ -1,11 +1,11 @@
 # dayz-watch
 
-[![CI](https://img.shields.io/github/actions/workflow/status/nwish/dayz-watcher/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/nwish/dayz-watcher/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/nwish/dayz-watcher?style=flat-square&label=Release)](https://github.com/nwish/dayz-watcher/releases)
-[![Docker Publish](https://img.shields.io/github/actions/workflow/status/nwish/dayz-watcher/publish.yml?style=flat-square&label=Docker%20Publish)](https://github.com/nwish/dayz-watcher/actions/workflows/publish.yml)
-[![Stars](https://img.shields.io/github/stars/nwish/dayz-watcher?style=flat-square)](https://github.com/nwish/dayz-watcher/stargazers)
-[![Last Commit](https://img.shields.io/github/last-commit/nwish/dayz-watcher?style=flat-square)](https://github.com/nwish/dayz-watcher/commits/main)
-[![License](https://img.shields.io/github/license/nwish/dayz-watcher?style=flat-square)](LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/nwish/dayz-watch/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/nwish/dayz-watch/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/nwish/dayz-watch?style=flat-square&label=Release)](https://github.com/nwish/dayz-watch/releases)
+[![Docker Publish](https://img.shields.io/github/actions/workflow/status/nwish/dayz-watch/publish.yml?style=flat-square&label=Docker%20Publish)](https://github.com/nwish/dayz-watch/actions/workflows/publish.yml)
+[![Stars](https://img.shields.io/github/stars/nwish/dayz-watch?style=flat-square)](https://github.com/nwish/dayz-watch/stargazers)
+[![Last Commit](https://img.shields.io/github/last-commit/nwish/dayz-watch?style=flat-square)](https://github.com/nwish/dayz-watch/commits/main)
+[![License](https://img.shields.io/github/license/nwish/dayz-watch?style=flat-square)](LICENSE)
 ![Node.js](https://img.shields.io/badge/Node.js-22-339933?style=flat-square&logo=nodedotjs&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white)
@@ -24,8 +24,8 @@ Currently on `1.0.0-rc1` only - there is no `latest` tag yet.
 **compose.yaml**
 ```sh
 services:
-  dayz-watcher:
-    image: ghcr.io/nwish/dayz-watcher:1.0.0-rc1
+  dayz-watch:
+    image: ghcr.io/nwish/dayz-watch:1.0.0-rc1
     restart: unless-stopped
     ports:
       - "${HOST_PORT:-8080}:8080"
