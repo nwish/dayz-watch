@@ -88,6 +88,7 @@
   .card .err { color: var(--err); }
   dd { margin: 0; }
   .foot { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+  .foot-btns { display: flex; gap: .5rem; flex-wrap: wrap; justify-content: flex-end; }
   .card { isolation: isolate; }
   .card::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--flash, transparent); opacity: 0; pointer-events: none; z-index: 0; }
   .card > :not(.close) { position: relative; z-index: 1; }
@@ -184,7 +185,7 @@
     <div id="ov-count"><span id="ov-players">—</span><span id="ov-max"></span></div>
     <div id="ov-delta" class="delta"></div>
     <dl id="ov-info"></dl>
-    <div class="foot"><span id="ov-status" class="muted"></span><button id="ov-mute">Sound: on</button></div>
+    <div class="foot"><span id="ov-status" class="muted"></span><span class="foot-btns"><button id="ov-awake">Keep awake: on</button><button id="ov-mute">Sound: on</button></span></div>
   </div>
 </div>
 
@@ -541,11 +542,12 @@ function applyTheme(map, gameTime) {
 // the Screen Wake Lock API (iOS/iPadOS 16.4+, Chrome on Android); elsewhere `navigator.wakeLock` is missing and this
 // does nothing. The browser drops the lock whenever the tab is hidden, so visibilitychange re-requests it.
 let wakeLock = null;
+let keepAwake = true; // the overlay's "Keep awake" toggle
 async function holdScreenOn() {
-  if (!openId || wakeLock || !navigator.wakeLock || document.visibilityState !== "visible") return;
+  if (!openId || !keepAwake || wakeLock || !navigator.wakeLock || document.visibilityState !== "visible") return;
   try {
     const lock = await navigator.wakeLock.request("screen");
-    if (!openId) return void lock.release(); // closed while the request was pending
+    if (!openId || !keepAwake || wakeLock) return void lock.release(); // closed, switched off or raced while the request was pending
     wakeLock = lock;
     lock.addEventListener("release", () => { if (wakeLock === lock) wakeLock = null; });
   } catch {
@@ -687,6 +689,14 @@ document.getElementById("ov-mute").onclick = (e) => {
   muted = !muted;
   e.target.textContent = muted ? "Sound: off" : "Sound: on";
   if (!muted) beep(true); // audible confirmation
+};
+const awakeBtn = document.getElementById("ov-awake");
+awakeBtn.hidden = !navigator.wakeLock; // unsupported, or not a secure context: a toggle that does nothing would mislead
+awakeBtn.onclick = () => {
+  keepAwake = !keepAwake;
+  awakeBtn.textContent = keepAwake ? "Keep awake: on" : "Keep awake: off";
+  if (keepAwake) holdScreenOn();
+  else releaseScreen();
 };
 
 document.getElementById("add").addEventListener("submit", async (e) => {

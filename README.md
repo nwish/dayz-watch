@@ -130,7 +130,7 @@ Notes:
 
 Click a server row for a large overlay with the live player count and basic info (address, game port, map, version, platform, in-game time, BattlEye, third person, password). While it is open, a change in player count plays a three-beat alert (rising for joins, falling for leaves), flashes the window green or red and shows `+N joined` / `−N left`. The `Sound` button mutes it; Esc, ×, or a click outside closes it. Browsers allow audio only after a user gesture, so sound is enabled by the click that opens the overlay.
 
-While the overlay is open it also asks the browser to keep the screen on (Screen Wake Lock API: iOS/iPadOS 16.4+, Chrome on Android, desktop Chrome/Safari/Firefox 126+). The browser only allows this on HTTPS or `localhost`, so over plain HTTP on a LAN address it silently does nothing. The lock is released when the overlay closes, and requested again when you switch back to the tab after leaving it.
+While the overlay is open it also asks the browser to keep the screen on (Screen Wake Lock API: iOS/iPadOS 16.4+, Chrome on Android, desktop Chrome/Safari/Firefox 126+). The `Keep awake` button turns that off and on; it defaults to on each time the page loads. The browser only allows a wake lock on HTTPS or `localhost`, so over plain HTTP on a LAN address the button is hidden and nothing is requested. The lock is released when the overlay closes, and requested again when you switch back to the tab after leaving it.
 
 The overlay is themed by the server's map (colors, sky gradient, inline SVG landscape):
 
