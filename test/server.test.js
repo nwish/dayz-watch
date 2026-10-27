@@ -270,6 +270,37 @@ test("admin: page and overview API are admin-only and never leak credentials", a
   assert.match(page.text, /Database/);
 });
 
+test("admin settings: admin-only, all-or-nothing validation, applied live, and null resets to the default", async () => {
+  assert.equal((await client().call("GET", "/api/admin/settings")).status, 401);
+  const admin = await loginAs("admin", ADMIN_PW);
+  assert.equal((await admin.call("POST", "/api/users", { username: "hank", password: "hanks long password", role: "user" })).status, 201);
+  const hank = await loginAs("hank", "hanks long password");
+  assert.equal((await hank.call("GET", "/api/admin/settings")).status, 403);
+  assert.equal((await hank.call("PUT", "/api/admin/settings", { pollSeconds: 10 })).status, 403);
+
+  const read = async () => (await admin.call("GET", "/api/admin/settings")).json.settings;
+  const start = await read();
+  assert.deepEqual([start.pollSeconds.value, start.pollSeconds.default, start.pollSeconds.overridden], [30, 30, false]);
+
+  // one bad entry rejects the whole patch: the valid pollSeconds must not be applied either
+  for (const bad of [{ pollSeconds: 20, offlineAfter: 0 }, { pollSeconds: 4 }, { offlineAfter: 2.5 }, { pollSeconds: "20" }, { nope: 1 }, {}]) {
+    assert.equal((await admin.call("PUT", "/api/admin/settings", bad)).status, 400, JSON.stringify(bad));
+  }
+  assert.equal((await read()).pollSeconds.value, 30);
+
+  const saved = await admin.call("PUT", "/api/admin/settings", { pollSeconds: 20, offlineAfter: 5 });
+  assert.equal(saved.status, 200);
+  assert.deepEqual([saved.json.settings.pollSeconds.overridden, saved.json.settings.recheckSeconds.overridden], [true, false]);
+  const live = (await admin.call("GET", "/api/servers")).json;
+  assert.deepEqual([live.pollSeconds, live.offlineAfter, live.recheckSeconds, live.rebootWindowMinutes], [20, 5, 5, 10]); // the list the main page reads
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dataDir, "settings.json"), "utf8")), { pollSeconds: 20, offlineAfter: 5 }); // only what was changed
+
+  assert.equal((await admin.call("PUT", "/api/admin/settings", { pollSeconds: null, offlineAfter: null })).status, 200);
+  const back = (await admin.call("GET", "/api/servers")).json;
+  assert.deepEqual([back.pollSeconds, back.offlineAfter], [30, 3]);
+  assert.equal((await read()).pollSeconds.overridden, false);
+});
+
 test("adding a server: it must answer and be a DayZ server", async () => {
   const admin = await loginAs("admin", ADMIN_PW);
   const add = (port) => admin.call("POST", "/api/servers", { host: "127.0.0.1", queryPort: port });

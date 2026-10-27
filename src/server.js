@@ -8,17 +8,17 @@ import { Directory, DEFAULT_DIRECTORY_URL } from "./directory.js";
 import { Stats } from "./stats.js";
 import { Store, validateServerInput } from "./store.js";
 import { resolveHost } from "./netguard.js";
+import { Settings } from "./settings.js";
 import { Monitor } from "./monitor.js";
 import { AuthError, FailureLimiter, SessionStore, UserStore, bootstrapAdmin, validatePassword } from "./auth.js";
 
 const PORT = Number(process.env.PORT ?? 8080);
 const DATA_DIR = process.env.DATA_DIR ?? "./data";
-const POLL_MS = Math.max(5, Number(process.env.POLL_SECONDS ?? 30)) * 1000;
-const OFFLINE_AFTER = Math.max(1, Math.floor(Number(process.env.OFFLINE_AFTER)) || 3); // consecutive failed polls before a server counts as offline
-const recheckSeconds = Number(process.env.RECHECK_SECONDS ?? 5);
-const RECHECK_MS = (Number.isFinite(recheckSeconds) ? Math.max(2, recheckSeconds) : 5) * 1000; // how often a server that isn't answering is re-polled
-const rebootMinutes = Number(process.env.REBOOT_WINDOW_MINUTES ?? 10);
-const REBOOT_S = (Number.isFinite(rebootMinutes) ? Math.max(0, rebootMinutes) : 10) * 60; // a downtime shorter than this is a normal restart
+const settings = new Settings(DATA_DIR);
+const monitorTimings = () => {
+  const v = settings.values;
+  return { pollMs: v.pollSeconds * 1000, recheckMs: v.recheckSeconds * 1000, offlineAfter: v.offlineAfter, rebootWindowMs: v.rebootWindowMinutes * 60e3 };
+};
 const DEFAULT_WEBHOOK = process.env.DISCORD_WEBHOOK_URL || null;
 const directory = new Directory({ url: process.env.DIRECTORY_URL || DEFAULT_DIRECTORY_URL });
 const TRUST_PROXY = process.env.TRUST_PROXY === "true";
@@ -73,21 +73,24 @@ if (AUTH_DISABLED) {
   }
 }
 
-const stats = new Stats(path.join(DATA_DIR, "stats.db"), { rebootSeconds: REBOOT_S });
+const stats = new Stats(path.join(DATA_DIR, "stats.db"), { rebootSeconds: settings.values.rebootWindowMinutes * 60 });
 stats.closeOpenOutages(); // an outage left open by the previous run can't be followed while we were down
 stats.prune();
 setInterval(() => stats.prune(), 60 * 60e3).unref(); // keep 90 days
 const monitor = new Monitor({
   query: (host, port) => queryInfo(host, port, { allowPrivate: ALLOW_PRIVATE }),
   defaultWebhook: DEFAULT_WEBHOOK,
-  pollMs: POLL_MS,
-  recheckMs: RECHECK_MS,
-  offlineAfter: OFFLINE_AFTER,
-  rebootWindowMs: REBOOT_S * 1000,
+  ...monitorTimings(),
   onSample: (s, sample) => stats.record(s.id, sample),
   onOutage: (s, kind, atMs, players) => (kind === "start" ? stats.outageStart(s.id, atMs / 1000) : stats.outageEnd(s.id, atMs / 1000, players)),
 });
 store.list().forEach((s) => monitor.start(s));
+
+// Push the current settings into the running monitor and history store (after an admin changed them).
+function applySettings() {
+  monitor.configure(monitorTimings());
+  stats.rebootSeconds = settings.values.rebootWindowMinutes * 60;
+}
 
 // ---- helpers ----
 
@@ -188,7 +191,7 @@ function adminOverview() {
   const mem = process.memoryUsage();
   const list = users.list();
   return {
-    runtime: { node: process.version, uptimeSec: Math.round(process.uptime()), rssBytes: mem.rss, heapUsedBytes: mem.heapUsed, pollSeconds: POLL_MS / 1000, dataDir: path.resolve(DATA_DIR) },
+    runtime: { node: process.version, uptimeSec: Math.round(process.uptime()), rssBytes: mem.rss, heapUsedBytes: mem.heapUsed, pollSeconds: settings.values.pollSeconds, dataDir: path.resolve(DATA_DIR) },
     counts: { servers: known.size, users: list.length, admins: list.filter((u) => u.role === "admin").length, activeSessions: sessions.count() },
     files: { serversJson: size("servers.json"), usersJson: size("users.json") },
     db: { ...db, perServer },
@@ -268,12 +271,13 @@ async function api(req, res, url, session) {
 
   // ---- servers (any signed-in user) ----
   if (method === "GET" && pathname === "/api/servers") {
+    const cfg = settings.values;
     return reply(res, 200, {
       defaultWebhook: Boolean(DEFAULT_WEBHOOK),
-      offlineAfter: OFFLINE_AFTER,
-      pollSeconds: POLL_MS / 1000,
-      recheckSeconds: Math.min(RECHECK_MS, POLL_MS) / 1000,
-      rebootWindowMinutes: REBOOT_S / 60,
+      offlineAfter: cfg.offlineAfter,
+      pollSeconds: cfg.pollSeconds,
+      recheckSeconds: Math.min(cfg.recheckSeconds, cfg.pollSeconds),
+      rebootWindowMinutes: cfg.rebootWindowMinutes,
       servers: store.list().map(serverView),
     });
   }
@@ -315,6 +319,19 @@ async function api(req, res, url, session) {
     monitor.stop(delServer[1]);
     stats.remove(delServer[1]);
     return reply(res, 200, { ok: true });
+  }
+
+  // ---- monitoring settings (admin) ----
+  if (pathname === "/api/admin/settings") {
+    requireAdmin();
+    if (method === "GET") return reply(res, 200, { settings: settings.describe() });
+    if (method === "PUT") {
+      const patch = await readJson(req);
+      const described = settings.update(patch);
+      applySettings();
+      console.log(`${new Date().toISOString()} ${me.username} changed settings: ${JSON.stringify(patch)}`);
+      return reply(res, 200, { settings: described });
+    }
   }
 
   // ---- admin overview (admin) ----
@@ -425,7 +442,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`dayz-watch listening on :${PORT}, ${store.list().length} server(s), ${users.count()} user(s), poll ${POLL_MS / 1000}s`);
+  console.log(`dayz-watch listening on :${PORT}, ${store.list().length} server(s), ${users.count()} user(s), poll ${settings.values.pollSeconds}s`);
   if (!AUTH_DISABLED && !COOKIE_SECURE && !TRUST_PROXY) console.warn("Session cookie is not marked Secure (set COOKIE_SECURE=true when serving over HTTPS)");
 });
 

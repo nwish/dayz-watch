@@ -25,6 +25,10 @@
   dt { color: var(--dim); }
   dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
   .inline { margin-top: .9rem; }
+  .setting { display: grid; grid-template-columns: minmax(12rem, 1.4fr) 7rem 1fr 5rem; gap: .5rem .8rem; align-items: center; padding: .4rem 0; border-bottom: 1px solid var(--line); }
+  .setting input { width: 100%; box-sizing: border-box; }
+  .setting button { margin: 0; }
+  #settings-msg { min-height: 1.2em; }
   #users-msg { min-height: 1.2em; }
   @media (max-width: 640px) {
     h1 { font-size: 1.2rem; white-space: nowrap; }
@@ -39,6 +43,9 @@
     #user-table thead { display: none; }
     #user-table, #user-rows { display: block; }
     .inline > * { flex: 1 1 100%; }
+    .setting { grid-template-columns: 1fr 7rem; }
+    .setting .muted { grid-column: 1 / -1; }
+    .setting button { grid-column: 1 / -1; }
   }
 </style>
 </head>
@@ -54,6 +61,15 @@
 <section>
   <div class="bar"><h2>Overview</h2></div>
   <div class="cards" id="overview"><span class="muted">Loading…</span></div>
+</section>
+
+<section>
+  <div class="bar"><h2>Monitoring settings</h2></div>
+  <p class="muted">How often servers are polled and when one counts as offline. These start from the environment (<code>POLL_SECONDS</code>, <code>OFFLINE_AFTER</code>, <code>RECHECK_SECONDS</code>, <code>REBOOT_WINDOW_MINUTES</code>); a value you save here overrides it and applies immediately, without a restart.</p>
+  <form id="settings">
+    <div id="settings-rows"><span class="muted">Loading…</span></div>
+    <div class="inline"><button type="submit">Save</button><span id="settings-msg"></span></div>
+  </form>
 </section>
 
 <section>
@@ -342,6 +358,48 @@ $("user-add").addEventListener("submit", async (e) => {
   loadOverview();
 });
 
+// ---- Monitoring settings ----
+// The environment gives each default; a value saved here overrides it. Only the fields you changed are sent,
+// so the others keep following the environment.
+let settingsView = {};
+function renderSettings(settings) {
+  settingsView = settings;
+  const body = $("settings-rows");
+  body.replaceChildren();
+  for (const [key, s] of Object.entries(settings)) {
+    const input = h("input", { name: key, type: "number", value: s.value, min: s.min, max: s.max, step: s.integer ? 1 : "any", required: true });
+    const note = h("span", { className: "muted", textContent: s.overridden ? `Saved here. Default: ${s.default}` : `Default (environment): ${s.default}` });
+    const reset = h("button", { type: "button", textContent: "Reset", hidden: !s.overridden, title: "Go back to the default" });
+    reset.onclick = async () => {
+      const res = await api("/api/admin/settings", { method: "PUT", body: { [key]: null } });
+      setMsg("settings-msg", res.ok ? `${s.label} reset to the default.` : res.data.error, res.ok);
+      if (res.ok) renderSettings(res.data.settings);
+    };
+    body.append(h("label", { className: "setting" }, h("span", { textContent: s.label }), input, note, reset));
+  }
+}
+async function loadSettings() {
+  const { ok, data } = await api("/api/admin/settings");
+  if (ok) renderSettings(data.settings);
+  else setMsg("settings-msg", data.error, false);
+}
+$("settings").addEventListener("input", () => setMsg("settings-msg", "", true)); // a message about the last save no longer applies
+$("settings").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const patch = {};
+  for (const [key, s] of Object.entries(settingsView)) {
+    const v = Number(e.target.elements[key].value);
+    if (v !== s.value) patch[key] = v;
+  }
+  if (!Object.keys(patch).length) return setMsg("settings-msg", "Nothing changed.", true);
+  const res = await api("/api/admin/settings", { method: "PUT", body: patch });
+  setMsg("settings-msg", res.ok ? "Saved. Applied to all servers now." : res.data.error, res.ok);
+  if (res.ok) {
+    renderSettings(res.data.settings);
+    loadOverview();
+  }
+});
+
 $("refresh").onclick = loadOverview;
 
 (async () => {
@@ -349,6 +407,7 @@ $("refresh").onclick = loadOverview;
   if (me.role !== "admin") return location.replace("/");
   $("who").textContent = `${me.username} (${me.role})`;
   loadOverview();
+  loadSettings();
   loadUsers();
   setInterval(loadOverview, 30_000);
 })();

@@ -102,6 +102,8 @@ export class Monitor {
       offlineSince: null,
       offlineNotified: false, // an "offline" alert went out, so a "back online" one is owed
       lastFailSampleAt: 0, // when a failed poll was last written to the history (rechecks are throttled)
+      waiting: false, // a poll timer is pending (as opposed to a tick running), see start()
+      reschedule: null,
       pollSlotMs: pollSlot(server.id, this.pollMs), // keeps healthy servers from querying in lockstep
     };
     this.state.set(server.id, st);
@@ -119,14 +121,35 @@ export class Monitor {
 
   start(server) {
     const st = this.track(server);
+    const delay = () => (st.failures === 0 ? this.#healthyPollDelay(st) : this.nextPollDelay(server.id));
     const loop = async () => {
+      st.waiting = false;
       await this.tick(server);
       if (!st.stopped) {
-        const delay = st.failures === 0 ? this.#healthyPollDelay(st) : this.nextPollDelay(server.id);
-        st.timer = setTimeout(loop, delay);
+        st.waiting = true;
+        st.timer = setTimeout(loop, delay());
       }
     };
+    // Called by configure(): a pending wait was computed from the old timings, so redo it. A running tick
+    // needs nothing, it schedules its next poll from the new values once it finishes.
+    st.reschedule = () => {
+      if (!st.waiting || st.stopped) return;
+      clearTimeout(st.timer);
+      st.timer = setTimeout(loop, delay());
+    };
     loop();
+  }
+
+  // Change the timings of a running monitor (the admin panel does this). The new values apply to every server
+  // at once, including ones that are already waiting out a long poll interval.
+  configure({ pollMs = this.pollMs, recheckMs = this.recheckMs, offlineAfter = this.offlineAfter, rebootWindowMs = this.rebootWindowMs }) {
+    const changed = pollMs !== this.pollMs || recheckMs !== this.recheckMs || offlineAfter !== this.offlineAfter || rebootWindowMs !== this.rebootWindowMs;
+    if (!changed) return;
+    Object.assign(this, { pollMs, recheckMs, offlineAfter, rebootWindowMs });
+    for (const [id, st] of this.state) {
+      st.pollSlotMs = pollSlot(id, pollMs);
+      st.reschedule?.();
+    }
   }
 
   stop(id) {

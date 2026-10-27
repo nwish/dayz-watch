@@ -66,7 +66,9 @@ See [.env.example](.env.example) - copy to `.env` and edit to your liking.
 | `DIRECTORY_URL` | DZSA Launcher list | JSON list of public servers for the add-server search. Override only to point at a compatible mirror. |
 | `HOST_PORT` | 8080 | Host port published by compose (the container always listens on 8080). |
 
-Data lives in the `dayz-watch-data` volume: `servers.json` (per-server webhook URLs in plain text, never returned by the API), `users.json` (scrypt password hashes, mode 600) and `stats.db` (the 90-day player history, SQLite; the `-wal`/`-shm` files are normal).
+The four monitoring variables (`POLL_SECONDS`, `OFFLINE_AFTER`, `RECHECK_SECONDS`, `REBOOT_WINDOW_MINUTES`) are only the **defaults**. An admin can change them on the **Admin** page under *Monitoring settings*; a saved value overrides the environment, applies to every server at once without a restart, and is kept in `settings.json`. Only the values you changed are saved, so the rest keep following `.env`. **Reset** drops an override and the `.env` value applies again. The panel accepts `POLL_SECONDS` 5–3600, `OFFLINE_AFTER` 1–100 (whole number), `RECHECK_SECONDS` 2–3600 and `REBOOT_WINDOW_MINUTES` 0–1440.
+
+Data lives in the `dayz-watch-data` volume: `servers.json` (per-server webhook URLs in plain text, never returned by the API), `users.json` (scrypt password hashes, mode 600), `settings.json` (the admin panel's monitoring overrides) and `stats.db` (the 90-day player history, SQLite; the `-wal`/`-shm` files are normal).
 
 The container needs outbound UDP to the query ports and outbound HTTPS to Discord. Put TLS in front of it (reverse proxy) beyond a trusted LAN: the login form sends the password in the clear over plain HTTP.
 
