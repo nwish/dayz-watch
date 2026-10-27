@@ -12,6 +12,13 @@
   table { margin-bottom: 1.5rem; }
   th { font-size: .8rem; }
   .toolbar { display: flex; align-items: center; gap: .8rem; margin-bottom: .8rem; }
+  .sortbar { display: none; align-items: center; gap: .5rem; margin-bottom: .6rem; font-size: .85rem; color: var(--dim); }
+  .sortbar select { flex: 1; min-width: 0; }
+  th .sort { background: none; border: 0; padding: 0; margin: 0; color: inherit; text-transform: inherit; letter-spacing: inherit; }
+  th .sort:hover { color: var(--hl); }
+  th[aria-sort=ascending] .sort::after { content: " ↑"; }
+  th[aria-sort=descending] .sort::after { content: " ↓"; }
+  th[aria-sort=ascending] .sort, th[aria-sort=descending] .sort { color: var(--hl); }
   .toolbar > button { margin: 0; flex: none; }
   #monbar { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: .15rem 1rem; padding: .45rem .7rem; background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--dim); border-radius: 3px; font-size: .82rem; color: var(--dim); }
   #monbar[data-tone=ok] { border-left-color: var(--ok); }
@@ -106,6 +113,7 @@
   @keyframes pop { 30% { transform: scale(1.25); } }
   @media (max-width: 640px) {
     .toolbar { flex-wrap: wrap; }
+    .sortbar { display: flex; }
     #monbar { flex-basis: 100%; order: 2; }
     .toolbar > button { margin-left: auto; }
     button, input, select, a.btn { padding: .65rem .75rem; }
@@ -155,8 +163,20 @@
   <div id="monbar" role="status" aria-live="off"><span class="head">Loading…</span></div>
   <button id="add-open" type="button">+ Add server</button>
 </div>
+<div class="sortbar">
+  <label for="sort-by">Sort</label>
+  <select id="sort-by"><option value="">Default order</option></select>
+  <button id="sort-dir" type="button" aria-label="Ascending">↑</button>
+</div>
 <table>
-  <thead><tr><th>Server</th><th>Address</th><th>Map</th><th>Players</th><th>Status</th><th></th></tr></thead>
+  <thead><tr>
+    <th data-sort="name" aria-sort="none"><button type="button" class="sort">Server</button></th>
+    <th data-sort="address" aria-sort="none"><button type="button" class="sort">Address</button></th>
+    <th data-sort="map" aria-sort="none"><button type="button" class="sort">Map</button></th>
+    <th data-sort="players" aria-sort="none"><button type="button" class="sort">Players</button></th>
+    <th data-sort="status" aria-sort="none"><button type="button" class="sort">Status</button></th>
+    <th></th>
+  </tr></thead>
   <tbody id="rows"><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
 </table>
 
@@ -336,19 +356,87 @@ function renderMonitor(data) {
   monbar.replaceChildren(...items.map((it) => (typeof it === "string" ? Object.assign(document.createElement("span"), { textContent: it }) : it)));
 }
 
+// ---- Sorting ----
+// Click a column header (desktop) or use the Sort bar (phones, where the header row is hidden). A header cycles
+// first direction -> opposite -> back to the server order the API returns. Servers with no value for the column
+// (no answer yet, offline for Players) always sort last, whichever way it points. Ties keep the API order.
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" }); // numeric: 1.2.3.4:2303 before 1.2.3.10:2303
+const num = (a, b) => a - b;
+const statusRank = (s) => (s.state === "offline" ? (s.likelyRestart ? 3 : 4) : s.failures || s.state === "unknown" ? 2 : s.error ? 1 : 0);
+const SORTS = {
+  name: { label: "Server", value: (s) => s.info?.name ?? null, cmp: collator.compare }, // an unnamed row shows "—", so it goes last
+  address: { label: "Address", value: (s) => `${s.host}:${s.queryPort}`, cmp: collator.compare },
+  map: { label: "Map", value: (s) => s.info?.map ?? null, cmp: collator.compare },
+  players: { label: "Players", first: "desc", value: (s) => (s.state === "offline" || !s.info ? null : s.info.players), cmp: num },
+  status: { label: "Status", value: statusRank, cmp: num },
+};
+let sort = (() => {
+  try {
+    const v = JSON.parse(localStorage.getItem("serverSort"));
+    if (v && SORTS[v.key] && (v.dir === "asc" || v.dir === "desc")) return v;
+  } catch {}
+  return { key: null, dir: "asc" };
+})();
+
+function sortServers(list) {
+  if (!sort.key) return list;
+  const { value, cmp } = SORTS[sort.key];
+  const sign = sort.dir === "asc" ? 1 : -1;
+  return list
+    .map((s, i) => ({ s, i, v: value(s) }))
+    .sort((a, b) => (a.v == null || b.v == null ? (a.v == null) - (b.v == null) : sign * cmp(a.v, b.v)) || a.i - b.i)
+    .map((x) => x.s);
+}
+
+const sortBy = document.getElementById("sort-by");
+const sortDir = document.getElementById("sort-dir");
+function setSort(key, dir) {
+  sort = { key, dir };
+  try {
+    localStorage.setItem("serverSort", JSON.stringify(sort));
+  } catch {} // private mode / storage disabled: the choice just doesn't survive a reload
+  for (const th of document.querySelectorAll("th[data-sort]")) {
+    th.setAttribute("aria-sort", th.dataset.sort === key ? (dir === "asc" ? "ascending" : "descending") : "none");
+  }
+  sortBy.value = key ?? "";
+  sortDir.disabled = !key;
+  sortDir.textContent = dir === "asc" ? "↑" : "↓";
+  sortDir.setAttribute("aria-label", dir === "asc" ? "Ascending" : "Descending");
+  if (lastData) renderRows(lastData);
+}
+function cycleSort(key) {
+  const first = SORTS[key].first ?? "asc";
+  const other = first === "asc" ? "desc" : "asc";
+  if (sort.key !== key) setSort(key, first);
+  else if (sort.dir === first) setSort(key, other);
+  else setSort(null, "asc");
+}
+for (const th of document.querySelectorAll("th[data-sort]")) th.querySelector("button").onclick = () => cycleSort(th.dataset.sort);
+for (const [key, { label }] of Object.entries(SORTS)) sortBy.append(new Option(label, key));
+sortBy.onchange = () => setSort(sortBy.value || null, SORTS[sortBy.value]?.first ?? "asc");
+sortDir.onclick = () => setSort(sort.key, sort.dir === "asc" ? "desc" : "asc");
+
+let lastData = null;
+setSort(sort.key, sort.dir); // reflect a saved choice in the header, the select and the direction button
 async function load() {
   const { data } = await api("/api/servers");
   offlineAfter = data.offlineAfter ?? offlineAfter;
   renderMonitor(data);
   const currentIds = new Set(data.servers.map((s) => s.id));
   for (const id of seenChecks.keys()) if (!currentIds.has(id)) seenChecks.delete(id);
+  lastData = data;
+  renderRows(data);
+  refreshOverlay(data.servers);
+}
+
+function renderRows(data) {
   rows.replaceChildren();
   if (!data.servers.length) {
     const tr = rows.insertRow();
     const td = cell(tr, "No servers yet.", "muted");
     td.colSpan = 6;
   }
-  for (const s of data.servers) {
+  for (const s of sortServers(data.servers)) {
     const tr = rows.insertRow();
     tr.className = "clickable";
     tr.onclick = () => openOverlay(s);
@@ -378,7 +466,6 @@ async function load() {
     actions.append(stats, btn);
     td.append(actions);
   }
-  refreshOverlay(data.servers);
 }
 
 // ---- Server detail overlay ----

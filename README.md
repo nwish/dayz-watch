@@ -17,6 +17,8 @@ A dependency-free web app that watches and polls basic stats on DayZ servers via
 
 Click/tap on a server from the main list to open a live stats view with player count change alerts.  Supports per-server Discord webhooks (or a default from an environment variable) to post player count change alerts.
 
+The server list sorts by any column: click a header (first click ascending, Players descending; second click reverses; third restores the default order). On phones, where the header row is hidden, use the **Sort** control above the list. Servers with no value for the column (no answer yet, or offline for Players) always sort last, and the choice is remembered in the browser.
+
 ## Run with Docker Compose
 
 Currently on `1.0.0-rc1` only - there is no `latest` tag yet.
