@@ -14,7 +14,7 @@ on:
       platforms:
         description: "Platforms to build"
         required: false
-        default: linux/amd64,linux/arm64
+        default: linux/amd64,linux/arm64,linux/arm/v7
         type: string
 
 permissions:
@@ -47,7 +47,7 @@ jobs:
         id: image
         run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
-      - uses: docker/setup-qemu-action@v4 # for the arm64 build
+      - uses: docker/setup-qemu-action@v4 # for the arm64 and arm/v7 builds
       - uses: docker/setup-buildx-action@v4
 
       - uses: docker/login-action@v4
@@ -73,7 +73,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          platforms: ${{ inputs.platforms || 'linux/amd64,linux/arm64' }} # a tag push has no inputs
+          platforms: ${{ inputs.platforms || 'linux/amd64,linux/arm64,linux/arm/v7' }} # a tag push has no inputs
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
