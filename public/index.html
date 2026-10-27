@@ -537,6 +537,27 @@ function applyTheme(map, gameTime) {
   set("--err", t.err);
 }
 
+// Keeps the phone's screen on while the overlay is open. Needs a secure context (HTTPS or localhost) and a browser with
+// the Screen Wake Lock API (iOS/iPadOS 16.4+, Chrome on Android); elsewhere `navigator.wakeLock` is missing and this
+// does nothing. The browser drops the lock whenever the tab is hidden, so visibilitychange re-requests it.
+let wakeLock = null;
+async function holdScreenOn() {
+  if (!openId || wakeLock || !navigator.wakeLock || document.visibilityState !== "visible") return;
+  try {
+    const lock = await navigator.wakeLock.request("screen");
+    if (!openId) return void lock.release(); // closed while the request was pending
+    wakeLock = lock;
+    lock.addEventListener("release", () => { if (wakeLock === lock) wakeLock = null; });
+  } catch {
+    // Denied (battery saver, no user activation, ...): the screen just follows the OS timeout.
+  }
+}
+function releaseScreen() {
+  wakeLock?.release().catch(() => {});
+  wakeLock = null;
+}
+document.addEventListener("visibilitychange", holdScreenOn);
+
 function openOverlay(s) {
   // Created inside the click handler so the browser allows audio playback later.
   audioCtx ??= new AudioContext();
@@ -549,12 +570,14 @@ function openOverlay(s) {
   overlay.hidden = false;
   document.documentElement.classList.add("modal-open");
   renderOverlay(s);
+  holdScreenOn();
 }
 
 function closeOverlay() {
   openId = null;
   overlay.hidden = true;
   document.documentElement.classList.remove("modal-open");
+  releaseScreen();
 }
 
 function renderOverlay(s) {
