@@ -49,6 +49,16 @@ test("queryInfo tells DayZ from other games by app id or folder/game name", asyn
   assert.equal(await is({ folder: "csgo", game: "Counter-Strike", appId: 730, gameId: 730n }), false);
 });
 
+test("queryInfo reads past a Steam id in the extra data to the keywords and game id", async () => {
+  const udp = await fakeA2S(() => 3, { steamId: 90_170_000_000_000_001n, gameId: 221100n });
+  try {
+    const info = await queryInfo("127.0.0.1", udp.address().port);
+    assert.deepEqual([info.gamePort, info.gameTime, info.battleye, info.isDayZ], [11300, "06:07", true, true]);
+  } finally {
+    udp.close();
+  }
+});
+
 test("queryInfo rejects on timeout", async () => {
   const udp = dgram.createSocket("udp4"); // never answers
   await new Promise((r) => udp.bind(0, "127.0.0.1", r));
