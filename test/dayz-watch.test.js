@@ -210,6 +210,38 @@ test("monitor: healthy servers occupy stable independent poll slots after their 
   }
 });
 
+test("monitor: configure() re-plans servers that are already waiting, and does nothing when no timing changed", async () => {
+  const timers = [];
+  const cleared = [];
+  const { setTimeout: realSetTimeout, clearTimeout: realClearTimeout } = globalThis;
+  const m = new Monitor({ query: async () => info(1), notify: async () => {}, pollMs: 3_600_000, now: () => 0 });
+  globalThis.setTimeout = (callback, delay) => {
+    const handle = { callback, delay };
+    timers.push(handle);
+    return handle;
+  };
+  globalThis.clearTimeout = (handle) => cleared.push(handle);
+  try {
+    m.start({ id: "alpha", host: "h", queryPort: 1, webhookUrl: null });
+    await new Promise(setImmediate);
+    assert.equal(timers.length, 1);
+    assert.ok(timers[0].delay > 60_000, "waiting out a one hour interval");
+
+    m.configure({ pollMs: 3_600_000 }); // same values
+    assert.deepEqual([timers.length, cleared.length], [1, 0]);
+
+    m.configure({ pollMs: 10_000 });
+    assert.deepEqual(cleared, [timers[0]]); // the hour-long wait is dropped
+    assert.equal(timers.length, 2);
+    assert.ok(timers[1].delay > 0 && timers[1].delay <= 10_000, `re-planned within the new interval, got ${timers[1].delay}`);
+    assert.equal(m.pollMs, 10_000);
+  } finally {
+    m.stop("alpha");
+    globalThis.setTimeout = realSetTimeout;
+    globalThis.clearTimeout = realClearTimeout;
+  }
+});
+
 // Fake-clock harness: every tick() first advances 30 s, like a real poll interval.
 function outageHarness({ webhook = "https://default", offlineAfter = 3, rebootWindowMs = 0, pollMs = 30_000, recheckMs = 5_000, notify, onOutage, onSample } = {}) {
   let t = 0;
