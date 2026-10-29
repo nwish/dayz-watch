@@ -15,7 +15,7 @@
 
 A dependency-free web app that watches and polls basic stats on DayZ servers via the Steam A2S_INFO query (UDP).  Comes with a web UI to manage and view monitored servers.  
 
-Click/tap on a server from the main list to open a live stats view with player count change alerts.  Supports per-server Discord webhooks (or a default from an environment variable) to post player count change alerts. The **Webhook** button on a server's row opens a dialog to replace its webhook (paste a new URL; the saved one is never shown, and an empty box keeps it), remove it with **Remove webhook**, or switch the **Alerts on / muted** slider. Muted means nothing at all is posted for that server (player changes, offline, back online), via its own webhook or the default, and the URL stays saved.
+Click/tap on a server from the main list to open a live stats view with player count change alerts.  Supports per-server Discord webhooks (or a default from an environment variable) to post player count change alerts. The **Discord** button on a server's row opens a dialog to replace its webhook (paste a new URL; the saved one is never shown, and an empty box keeps it), remove it with **Remove webhook**, or switch the **Alerts on / muted** slider. Muted means nothing at all is posted for that server (player changes, offline, back online), via its own webhook or the default, and the URL stays saved. The button shows the state at a glance: green when the server has its own webhook and alerts are on, orange when alerts are muted, and plain when it has no webhook of its own.
 
 ![dayz-watch live monitor: green and red alerts as players join and leave](docs/monitor.gif)
 
@@ -88,7 +88,7 @@ The container needs outbound UDP to the query ports and outbound HTTPS to Discor
 
 ## Behavior
 
-- **Status bar:** above the server list: servers online, checking, restarting? or offline; the polling cadence; the last check; and the offline and restart rules. Its left edge is green, amber (checking/restarting) or red (offline). Whether a server posts to Discord is shown per server, next to its status pill: **Discord on** (its own webhook), **Discord (default)** (it uses the default webhook), **Discord muted** (alerts switched off in the Webhook dialog), or nothing when there is no webhook at all. Hover or click the pill for the detail, which says `no webhook, not notifying` or `alerts muted` when nothing will be posted.
+- **Status bar:** above the server list: servers online, checking, restarting? or offline; the polling cadence; the last check; and the offline and restart rules. Its left edge is green, amber (checking/restarting) or red (offline). Click a server's status pill for the detail, which says `no webhook, not notifying` or `alerts muted` when nothing will be posted for it.
 - The first reading after start or add is a silent baseline.
 - A post is sent only when the count differs from the previous successful reading, e.g. `**Name** (map): players 5 → **6**/60 (+1)`.
 - A failed query (timeout, DNS) is shown in the UI and isn't a change.

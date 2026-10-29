@@ -64,9 +64,10 @@
   section h2 { font-size: 1.05rem; }
   .row-actions { display: flex; flex-wrap: nowrap; align-items: stretch; justify-content: flex-end; gap: .4rem; white-space: nowrap; }
   .row-actions > * { margin: 0; }
-  .hook-badge { display: inline-block; margin-left: .5rem; padding: .12rem .4rem; border: 1px solid currentColor; border-radius: 3px; color: var(--dim); font-size: .72rem; line-height: 1.2; white-space: nowrap; vertical-align: middle; }
-  .hook-badge.on { color: var(--ok); }
-  .hook-badge.muted { color: var(--warn); }
+  /* The row's Discord button: green = its own webhook is posting, orange = alerts muted, plain = nothing set. */
+  button.hook-on { color: var(--ok); border-color: var(--ok); background: rgba(163,196,106,.1); }
+  button.hook-muted { color: var(--warn); border-color: var(--warn); background: rgba(224,164,60,.1); }
+  button.hook-on:hover, button.hook-muted:hover { filter: brightness(1.2); }
   .status-pill { position: relative; display: inline-flex; align-items: center; padding: .28rem .55rem; border: 1px solid currentColor; border-radius: 999px; background: var(--field); color: var(--dim); font-size: .78rem; font-weight: 600; line-height: 1; cursor: pointer; }
   .status-pill.online { background: rgba(163,196,106,.1); color: var(--ok); }
   .status-pill.online::before { width: .4rem; height: .4rem; margin-right: .35rem; border-radius: 50%; background: currentColor; content: ""; }
@@ -291,26 +292,6 @@ function statusText(s) {
 }
 
 
-// Whether a server posts to Discord. Nothing is shown for a server with no webhook of its own and no default one.
-function hookBadge(s, defaultWebhook) {
-  if (!s.hasWebhook && !defaultWebhook) return null;
-  const b = document.createElement("span");
-  b.className = "hook-badge";
-  if (!s.webhookEnabled) {
-    b.classList.add("muted");
-    b.textContent = "Discord muted";
-    b.title = `Alerts are muted for this server${s.hasWebhook ? "; its webhook stays saved" : ""}. Change it with the Webhook button.`;
-  } else if (s.hasWebhook) {
-    b.classList.add("on");
-    b.textContent = "Discord on";
-    b.title = "Posting to this server's own webhook.";
-  } else {
-    b.textContent = "Discord (default)";
-    b.title = "No webhook of its own: posting to the default webhook.";
-  }
-  return b;
-}
-
 function statusPill(s, defaultWebhook) {
   const notifies = s.webhookEnabled && (s.hasWebhook || defaultWebhook);
   const detail = (statusText(s) ?? (s.state === "unknown" ? "Waiting for first response." : `ok, ${ago(s.checkedAt)}`)) + (notifies ? "" : s.webhookEnabled ? " · no webhook, not notifying" : " · alerts muted");
@@ -499,8 +480,6 @@ function renderRows(data) {
     cell(tr, dark ? (s.likelyRestart ? "restarting?" : "offline") : s.info ? `${s.info.players}/${s.info.maxPlayers}` : "—", dark ? (s.likelyRestart ? "warn" : "err") : "");
     const status = tr.insertCell();
     status.append(statusPill(s, data.defaultWebhook));
-    const badge = hookBadge(s, data.defaultWebhook);
-    if (badge) status.append(badge);
     const td = tr.insertCell();
     const btn = document.createElement("button");
     btn.textContent = "Remove";
@@ -511,7 +490,16 @@ function renderRows(data) {
       load();
     };
     const hook = document.createElement("button");
-    hook.textContent = "Webhook";
+    hook.textContent = "Discord";
+    if (!s.webhookEnabled && (s.hasWebhook || data.defaultWebhook)) {
+      hook.classList.add("hook-muted");
+      hook.title = `Alerts are muted for this server${s.hasWebhook ? "; its webhook stays saved" : ""}. Click to change.`;
+    } else if (s.hasWebhook) {
+      hook.classList.add("hook-on");
+      hook.title = "Posting to this server's own webhook. Click to change.";
+    } else {
+      hook.title = data.defaultWebhook ? "No webhook of its own: posting to the default webhook. Click to set one." : "No webhook set. Click to add one.";
+    }
     hook.onclick = (ev) => {
       ev.stopPropagation(); // don't open the overlay
       openHook(s, data.defaultWebhook);
