@@ -317,7 +317,6 @@ function renderMonitor(data) {
   const checking = n((s) => s.state !== "offline" && (s.failures || s.state === "unknown"));
   const online = list.length - offline - restarting - checking;
   const fast = list.some((s) => s.failures > 0 && (s.state !== "offline" || s.likelyRestart)); // quick rechecks are running
-  const alerting = n((s) => s.hasWebhook || data.defaultWebhook);
   const lastCheck = list.reduce((a, s) => (s.checkedAt && (!a || s.checkedAt > a) ? s.checkedAt : a), null);
 
   const parts = [];
@@ -347,10 +346,6 @@ function renderMonitor(data) {
     items.push(`Last check ${lastCheck ? ago(lastCheck) : "pending"}`);
     items.push(`Offline after ${data.offlineAfter} failed polls`);
     if (data.rebootWindowMinutes > 0) items.push(`Restart window ${secs(data.rebootWindowMinutes * 60)}`);
-    const alertText = document.createElement("span");
-    alertText.textContent = alerting === list.length ? "Discord alerts on" : alerting ? `Discord alerts on for ${alerting}/${list.length}` : "Discord alerts off";
-    if (alerting < list.length) alertText.className = "warn";
-    items.push(alertText);
   }
   monbar.dataset.tone = !list.length ? "" : offline ? "err" : restarting || checking ? "warn" : "ok";
   monbar.replaceChildren(...items.map((it) => (typeof it === "string" ? Object.assign(document.createElement("span"), { textContent: it }) : it)));
