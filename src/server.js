@@ -340,6 +340,18 @@ async function api(req, res, url, session) {
     return reply(res, 200, adminOverview());
   }
 
+  // ---- server list behind the add-server search (admin) ----
+  if (method === "GET" && pathname === "/api/admin/directory") {
+    requireAdmin();
+    return reply(res, 200, directory.status());
+  }
+  if (method === "POST" && pathname === "/api/admin/directory/refresh") {
+    requireAdmin();
+    const status = await directory.refresh();
+    console.log(`${new Date().toISOString()} ${me.username} refreshed the server list (${status.stats.servers} servers)`);
+    return reply(res, 200, status);
+  }
+
   // ---- user management (admin) ----
   if (pathname === "/api/users" || pathname.startsWith("/api/users/")) {
     requireAdmin();

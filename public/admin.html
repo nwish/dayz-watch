@@ -73,6 +73,24 @@
 </section>
 
 <section>
+  <div class="bar">
+    <h2>Server list</h2>
+    <span class="spacer"></span>
+    <span id="dir-msg" class="muted"></span>
+    <button id="dir-refresh">Refresh list</button>
+  </div>
+  <p class="muted" id="dir-note">The list behind the add-server search box. It is downloaded on the first search, then at most every 10 minutes. <em>Built</em> is when the source says it assembled the list; a server that restarted recently can be missing until the next build.</p>
+  <div class="cards" id="dir-cards"><span class="muted">Loading…</span></div>
+  <h3>Most common maps</h3>
+  <div class="scroll">
+    <table id="dir-maps">
+      <thead><tr><th>Map</th><th class="num">Servers</th><th class="num">Share</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</section>
+
+<section>
   <div class="bar"><h2>Watcher query RTT</h2></div>
   <p class="muted">A2S response time from this app host, not player latency. Resets when the app restarts.</p>
   <div class="scroll fixed">
@@ -383,6 +401,49 @@ async function loadSettings() {
   if (ok) renderSettings(data.settings);
   else setMsg("settings-msg", data.error, false);
 }
+
+// ---- Server list (add-server search) ----
+const ago = (ms) => {
+  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+  return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.floor(s / 60)}m ago` : `${dur(s)} ago`;
+};
+const clock = (ms) => new Date(ms).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+function renderDirectory(d) {
+  const st = d.stats;
+  const cards = d.loaded ? [] : [stat("Server list", "Not downloaded", "it is fetched on the first search, or press Refresh list")];
+  if (d.loaded) {
+    cards.push(
+      d.builtAt == null ? stat("List built", "unknown", "the source gives no build time") : stat("List built", ago(d.builtAt), clock(d.builtAt)),
+      stat("Downloaded", ago(d.fetchedAt), `refreshes on search after ${dur(d.ttlSeconds)}`),
+      stat("Servers", int(st.servers), `${int(st.hosts)} hosts, ${int(st.maps)} maps`),
+      stat("Players online", int(st.players), `${int(st.populated)} servers with players`),
+      stat("Passworded", int(st.passworded), pct(st.passworded, st.servers)),
+    );
+  }
+  if (d.lastError) cards.push(stat("Last refresh failed", clock(d.lastError.at), d.lastError.message));
+  $("dir-cards").replaceChildren(...cards);
+  const tb = $("dir-maps").tBodies[0];
+  tb.replaceChildren();
+  for (const m of st?.topMaps ?? []) tb.append(h("tr", {}, h("td", { textContent: m.map }), h("td", { className: "num", textContent: int(m.servers) }), h("td", { className: "num", textContent: pct(m.servers, st.servers) })));
+  if (!tb.rows.length) tb.append(h("tr", {}, h("td", { colSpan: 3, className: "muted", textContent: "No list loaded yet. Press Refresh list." })));
+}
+async function loadDirectory() {
+  const { ok, data } = await api("/api/admin/directory");
+  if (ok) renderDirectory(data);
+}
+$("dir-refresh").onclick = async () => {
+  const btn = $("dir-refresh");
+  btn.disabled = true;
+  setMsg("dir-msg", "Downloading…", true);
+  try {
+    const { ok, data } = await api("/api/admin/directory/refresh", { method: "POST" });
+    if (ok) renderDirectory(data);
+    else await loadDirectory(); // show the failure recorded on the server, next to the list still in use
+    setMsg("dir-msg", ok ? `Refreshed ${new Date().toLocaleTimeString()}` : data.error ?? "Refresh failed", ok);
+  } finally {
+    btn.disabled = false;
+  }
+};
 $("settings").addEventListener("input", () => setMsg("settings-msg", "", true)); // a message about the last save no longer applies
 $("settings").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -408,8 +469,9 @@ $("refresh").onclick = loadOverview;
   $("who").textContent = `${me.username} (${me.role})`;
   loadOverview();
   loadSettings();
+  loadDirectory();
   loadUsers();
-  setInterval(loadOverview, 30_000);
+  setInterval(() => { loadOverview(); loadDirectory(); }, 30_000);
 })();
 </script>
 </body>

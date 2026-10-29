@@ -85,3 +85,44 @@ test("cold-start failure surfaces as a 502 and the next search retries", async (
   await assert.rejects(d.search("cherno"), (e) => e.status === 502 && /unavailable/.test(e.message));
   assert.ok((await d.search("cherno")).length > 0);
 });
+
+test("status reports the upstream build time and list stats without downloading; refresh() bypasses the TTL and a failure keeps the list", async () => {
+  const state = { t: 5000, n: 0, fail: false };
+  const d = new Directory({
+    ttlMs: 60_000,
+    now: () => state.t,
+    fetchFn: async () => {
+      state.n++;
+      if (state.fail) return { ok: false, status: 503 };
+      return { ok: true, status: 200, json: async () => ({ created: "2026-10-29T16:29:45.826Z", result: LIST }) };
+    },
+  });
+  assert.deepEqual(d.status(), { loaded: false, builtAt: null, fetchedAt: null, ttlSeconds: 60, refreshing: false, lastError: null, stats: null });
+  assert.equal(state.n, 0);
+
+  const loaded = await d.refresh();
+  assert.equal(loaded.builtAt, Date.parse("2026-10-29T16:29:45.826Z"));
+  assert.equal(loaded.fetchedAt, 5000);
+  // 6 valid entries (the one without an endpoint is dropped): Busy Cherno has 55 players, the Europe one 23, the Cherno Club has a password.
+  assert.deepEqual(loaded.stats, {
+    servers: 6, hosts: 6, populated: 2, players: 78, passworded: 1, maps: 3,
+    topMaps: [{ map: "chernarusplus", servers: 4 }, { map: "namalsk", servers: 1 }, { map: "nasdara", servers: 1 }],
+  });
+
+  state.t = 6000; // well inside the TTL: a search would reuse the list, refresh() must not
+  await d.refresh();
+  assert.equal(state.n, 2);
+
+  state.fail = true;
+  state.t = 7000;
+  await assert.rejects(d.refresh(), (e) => e.status === 502 && /HTTP 503/.test(e.message));
+  const after = d.status();
+  assert.equal(after.stats.servers, 6);
+  assert.equal(after.fetchedAt, 6000); // still the last good download, not the failed attempt
+  assert.deepEqual(after.lastError, { message: "HTTP 503", at: 7000 });
+  assert.ok((await d.search("cherno")).length > 0);
+
+  state.fail = false;
+  state.t = 8000;
+  assert.equal((await d.refresh()).lastError, null);
+});
