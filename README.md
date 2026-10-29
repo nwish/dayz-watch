@@ -88,7 +88,7 @@ The container needs outbound UDP to the query ports and outbound HTTPS to Discor
 
 ## Behavior
 
-- **Status bar:** above the server list: servers online, checking, restarting? or offline; the polling cadence; the last check; and the offline and restart rules. Its left edge is green, amber (checking/restarting) or red (offline). Whether a server posts to Discord is shown per server: click its status pill, which says `no webhook, not notifying` when there is no webhook (its own or the default).
+- **Status bar:** above the server list: servers online, checking, restarting? or offline; the polling cadence; the last check; and the offline and restart rules. Its left edge is green, amber (checking/restarting) or red (offline). Whether a server posts to Discord is shown per server, next to its status pill: **Discord on** (its own webhook), **Discord (default)** (it uses the default webhook), **Discord muted** (alerts switched off in the Webhook dialog), or nothing when there is no webhook at all. Hover or click the pill for the detail, which says `no webhook, not notifying` or `alerts muted` when nothing will be posted.
 - The first reading after start or add is a silent baseline.
 - A post is sent only when the count differs from the previous successful reading, e.g. `**Name** (map): players 5 → **6**/60 (+1)`.
 - A failed query (timeout, DNS) is shown in the UI and isn't a change.
