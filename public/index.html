@@ -456,6 +456,21 @@ function renderRows(data) {
       await api(`/api/servers/${s.id}`, { method: "DELETE" });
       load();
     };
+    const hook = document.createElement("button");
+    hook.textContent = "Webhook";
+    hook.onclick = async (ev) => {
+      ev.stopPropagation(); // don't open the overlay
+      const typed = await ask({
+        title: "Discord webhook",
+        text: `${s.hasWebhook ? "This server has its own webhook (never shown). Paste a new URL to replace it, or leave the box empty to remove it." : "Paste a Discord webhook URL for this server."} Empty means ${data.defaultWebhook ? "the default webhook is used" : "no alerts are sent"}.`,
+        confirmLabel: "Save",
+        input: { type: "url", required: false, placeholder: "https://discord.com/api/webhooks/…", autocomplete: "off" },
+      });
+      if (typed === null) return;
+      const res = await api(`/api/servers/${s.id}/webhook`, { method: "PUT", body: { webhookUrl: typed.trim() } });
+      if (!res.ok) await ask({ title: "Webhook not saved", text: res.data.error ?? "Could not save the webhook." });
+      load();
+    };
     const stats = document.createElement("a");
     stats.className = "btn";
     stats.textContent = "Stats";
@@ -463,7 +478,7 @@ function renderRows(data) {
     stats.onclick = (ev) => ev.stopPropagation(); // don't open the overlay
     const actions = document.createElement("div");
     actions.className = "row-actions";
-    actions.append(stats, btn);
+    actions.append(stats, hook, btn);
     td.append(actions);
   }
 }

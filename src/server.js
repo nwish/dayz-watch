@@ -320,6 +320,16 @@ async function api(req, res, url, session) {
     stats.remove(delServer[1]);
     return reply(res, 200, { ok: true });
   }
+  const hookServer = method === "PUT" && /^\/api\/servers\/([\w-]+)\/webhook$/.exec(pathname);
+  if (hookServer) {
+    const body = await readJson(req);
+    // The field has to be there: a request without it must not wipe the webhook by accident.
+    if (body === null || typeof body !== "object" || !("webhookUrl" in body)) throw new Error('invalid request: webhookUrl is required (null or "" removes the webhook)');
+    const s = store.setWebhook(hookServer[1], body.webhookUrl);
+    if (!s) return reply(res, 404, { error: "not found" });
+    console.log(`${new Date().toISOString()} ${me.username} ${s.webhookUrl ? "changed" : "removed"} the webhook of ${s.host}:${s.queryPort}`);
+    return reply(res, 200, serverView(s));
+  }
 
   // ---- monitoring settings (admin) ----
   if (pathname === "/api/admin/settings") {

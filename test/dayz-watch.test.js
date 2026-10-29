@@ -523,3 +523,23 @@ test("store: persists across reload, rejects duplicates, removes", () => {
     fs.rmSync(dir, { recursive: true });
   }
 });
+
+test("store: a webhook can be replaced or removed after the fact, with the same validation as when adding", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dw-"));
+  try {
+    const one = "https://discord.com/api/webhooks/1/abc";
+    const two = "https://discord.com/api/webhooks/2/def";
+    const a = new Store(dir);
+    const s = a.add({ host: "1.2.3.4", queryPort: 11301, webhookUrl: one });
+    a.setWebhook(s.id, ` ${two} `);
+    assert.equal(new Store(dir).get(s.id).webhookUrl, two); // trimmed and saved
+    assert.throws(() => a.setWebhook(s.id, "https://discord.com.evil.io/api/webhooks/1/a"), /webhook/);
+    assert.throws(() => a.setWebhook(s.id, 5), /webhook/);
+    assert.equal(new Store(dir).get(s.id).webhookUrl, two); // a rejected URL changes nothing
+    a.setWebhook(s.id, "");
+    assert.equal(new Store(dir).get(s.id).webhookUrl, null); // empty removes it, so the default webhook applies
+    assert.equal(a.setWebhook("nope", one), null);
+  } finally {
+    fs.rmSync(dir, { recursive: true });
+  }
+});

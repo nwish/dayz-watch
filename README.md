@@ -15,7 +15,7 @@
 
 A dependency-free web app that watches and polls basic stats on DayZ servers via the Steam A2S_INFO query (UDP).  Comes with a web UI to manage and view monitored servers.  
 
-Click/tap on a server from the main list to open a live stats view with player count change alerts.  Supports per-server Discord webhooks (or a default from an environment variable) to post player count change alerts.
+Click/tap on a server from the main list to open a live stats view with player count change alerts.  Supports per-server Discord webhooks (or a default from an environment variable) to post player count change alerts. A server's webhook can be changed or removed later with the **Webhook** button on its row (the saved URL is never shown; an empty box removes it, so the default webhook applies).
 
 The server list sorts by any column: click a header (first click ascending, Players descending; second click reverses; third restores the default order). On phones, where the header row is hidden, use the **Sort** control above the list. Servers with no value for the column (no answer yet, or offline for Players) always sort last, and the choice is remembered in the browser.
 

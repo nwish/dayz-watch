@@ -326,6 +326,40 @@ test("adding a server: it must answer and be a DayZ server", async () => {
   }
 }, { timeout: 30_000 });
 
+test("a server's Discord webhook can be changed or removed, is validated, and is never echoed back", async () => {
+  const admin = await loginAs("admin", ADMIN_PW);
+  const hook = "https://discord.com/api/webhooks/123/secret-token_1";
+  const put = (id, body) => admin.call("PUT", `/api/servers/${id}/webhook`, body);
+  const added = await admin.call("POST", "/api/servers", { host: "127.0.0.1", queryPort: dayzPort });
+  const id = added.json.id;
+  try {
+    assert.equal(added.json.hasWebhook, false);
+    const set = await put(id, { webhookUrl: hook });
+    assert.equal(set.status, 200);
+    assert.equal(set.json.hasWebhook, true);
+    assert.doesNotMatch(set.text, /secret-token/);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dataDir, "servers.json"), "utf8")).servers.find((s) => s.id === id).webhookUrl, hook);
+    const listed = (await admin.call("GET", "/api/servers")).json;
+    assert.equal(listed.servers.find((s) => s.id === id).hasWebhook, true);
+    assert.doesNotMatch(JSON.stringify(listed), /secret-token/);
+
+    for (const bad of [{ webhookUrl: "http://169.254.169.254/" }, { webhookUrl: "https://discord.com.evil.io/api/webhooks/1/a" }, { webhookUrl: 5 }]) {
+      assert.equal((await put(id, bad)).status, 400, JSON.stringify(bad));
+    }
+    assert.equal((await put(id, {})).status, 400); // a request without the field must not wipe it
+    assert.equal((await admin.call("GET", "/api/servers")).json.servers.find((s) => s.id === id).hasWebhook, true);
+
+    assert.equal((await put("nope", { webhookUrl: hook })).status, 404);
+    for (const none of ["", null]) {
+      assert.equal((await put(id, { webhookUrl: none })).json.hasWebhook, false, JSON.stringify(none));
+      assert.equal((await put(id, { webhookUrl: hook })).json.hasWebhook, true);
+    }
+    assert.equal((await put(id, { webhookUrl: "" })).json.hasWebhook, false);
+  } finally {
+    await admin.call("DELETE", `/api/servers/${id}`);
+  }
+}, { timeout: 30_000 });
+
 test("account: the change-password page needs a session", async () => {
   const anon = client();
   const anonPage = await anon.call("GET", "/account");

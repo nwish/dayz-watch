@@ -46,6 +46,16 @@ export class Store {
     return server;
   }
 
+  // Replace a server's Discord webhook. null or "" removes it, so the default webhook (if any) applies. The URL gets
+  // the same check as when a server is added. Returns the server, or null when there is no such id.
+  setWebhook(id, webhookUrl) {
+    const server = this.get(id);
+    if (!server) return null;
+    server.webhookUrl = validateServerInput({ host: server.host, queryPort: server.queryPort, webhookUrl }).webhookUrl;
+    this.#save();
+    return server;
+  }
+
   remove(id) {
     const i = this.servers.findIndex((s) => s.id === id);
     if (i < 0) return false;
