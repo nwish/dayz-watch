@@ -17,7 +17,10 @@ const DATA_DIR = process.env.DATA_DIR ?? "./data";
 const settings = new Settings(DATA_DIR);
 const monitorTimings = () => {
   const v = settings.values;
-  return { pollMs: v.pollSeconds * 1000, recheckMs: v.recheckSeconds * 1000, offlineAfter: v.offlineAfter, rebootWindowMs: v.rebootWindowMinutes * 60e3 };
+  return {
+    pollMs: v.pollSeconds * 1000, recheckMs: v.recheckSeconds * 1000, offlineAfter: v.offlineAfter, rebootWindowMs: v.rebootWindowMinutes * 60e3,
+    parkAfterMs: v.parkAfterDays * 86400e3, parkedPollMs: v.parkedPollMinutes * 60e3,
+  };
 };
 const DEFAULT_WEBHOOK = process.env.DISCORD_WEBHOOK_URL || null;
 const directory = new Directory({ url: process.env.DIRECTORY_URL || DEFAULT_DIRECTORY_URL });
@@ -82,7 +85,16 @@ const monitor = new Monitor({
   defaultWebhook: DEFAULT_WEBHOOK,
   ...monitorTimings(),
   onSample: (s, sample) => stats.record(s.id, sample),
-  onOutage: (s, kind, atMs, players) => (kind === "start" ? stats.outageStart(s.id, atMs / 1000) : stats.outageEnd(s.id, atMs / 1000, players)),
+  onOutage: (s, kind, atMs, players) => {
+    if (kind === "start") {
+      stats.outageStart(s.id, atMs / 1000);
+      // The offline clock is saved once per outage, so a restart of this app keeps counting from the first failure.
+      if (store.get(s.id)?.offlineSince == null) store.setOffline(s.id, atMs, monitor.status(s.id).info?.name ?? null);
+    } else {
+      stats.outageEnd(s.id, atMs / 1000, players);
+      store.setOffline(s.id, null);
+    }
+  },
 });
 store.list().forEach((s) => monitor.start(s));
 
@@ -206,8 +218,28 @@ function serverView(s) {
     queryPort: s.queryPort,
     hasWebhook: Boolean(s.webhookUrl), // never echo the webhook URL back
     webhookEnabled: s.webhookEnabled !== false, // false = alerts muted for this server; the URL (if any) stays saved
+    lastName: s.lastName ?? null, // what it called itself before it went dark; only kept while it is offline
     ...status,
   };
+}
+
+// The address in `input` must be a DayZ server that answers right now. That catches a wrong host, or a game port
+// typed instead of the query port (game port + 1); a server that is down at this moment can't be added.
+async function verifiedAddress(input) {
+  if (!ALLOW_PRIVATE) {
+    const { host } = validateServerInput(input);
+    // A name that doesn't resolve yet is fine (the server may be down); only a private answer is refused.
+    await resolveHost(host).catch((e) => {
+      if (/private address/.test(e.message)) throw new Error(`invalid host: ${e.message}`);
+    });
+  }
+  const v = validateServerInput(input);
+  const address = `${v.host}:${v.queryPort}`;
+  const info = await queryInfo(v.host, v.queryPort, { allowPrivate: ALLOW_PRIVATE }).catch((e) => {
+    throw new Error(`invalid server: no answer from ${address} (${e.message}). Check the host and use the query port (game port + 1).`);
+  });
+  if (!info.isDayZ) throw new Error(`invalid server: ${address} answered, but it isn't a DayZ server`);
+  return info;
 }
 
 // ---- routes ----
@@ -279,6 +311,8 @@ async function api(req, res, url, session) {
       pollSeconds: cfg.pollSeconds,
       recheckSeconds: Math.min(cfg.recheckSeconds, cfg.pollSeconds),
       rebootWindowMinutes: cfg.rebootWindowMinutes,
+      parkAfterDays: cfg.parkAfterDays,
+      parkedPollMinutes: cfg.parkedPollMinutes,
       servers: store.list().map(serverView),
     });
   }
@@ -295,21 +329,7 @@ async function api(req, res, url, session) {
   }
   if (method === "POST" && pathname === "/api/servers") {
     const input = await readJson(req);
-    if (!ALLOW_PRIVATE) {
-      const { host } = validateServerInput(input);
-      // A name that doesn't resolve yet is fine (the server may be down); only a private answer is refused.
-      await resolveHost(host).catch((e) => {
-        if (/private address/.test(e.message)) throw new Error(`invalid host: ${e.message}`);
-      });
-    }
-    const v = validateServerInput(input);
-    const address = `${v.host}:${v.queryPort}`;
-    // Only a DayZ server that answers can be added, which catches a wrong host or a game port typed
-    // instead of the query port (game port + 1). A server that is down at this moment can't be added.
-    const info = await queryInfo(v.host, v.queryPort, { allowPrivate: ALLOW_PRIVATE }).catch((e) => {
-      throw new Error(`invalid server: no answer from ${address} (${e.message}). Check the host and use the query port (game port + 1).`);
-    });
-    if (!info.isDayZ) throw new Error(`invalid server: ${address} answered, but it isn't a DayZ server`);
+    await verifiedAddress(input);
     const s = store.add(input);
     monitor.start(s);
     return reply(res, 201, serverView(s));
@@ -335,6 +355,26 @@ async function api(req, res, url, session) {
     if ("enabled" in body) did.push(s.webhookEnabled === false ? "muted alerts" : "unmuted alerts");
     console.log(`${new Date().toISOString()} ${me.username} ${did.join(" and ")} of ${s.host}:${s.queryPort}`);
     return reply(res, 200, serverView(s));
+  }
+  const patchServer = method === "PATCH" && /^\/api\/servers\/([\w-]+)$/.exec(pathname);
+  if (patchServer) {
+    const s = store.get(patchServer[1]);
+    if (!s) return reply(res, 404, { error: "not found" });
+    const input = await readJson(req);
+    const info = await verifiedAddress(input);
+    const from = `${s.host}:${s.queryPort}`;
+    store.changeAddress(s.id, input); // same id: history and webhook stay attached
+    stats.outageEnd(s.id, Date.now() / 1000, info.players); // a no-op unless an outage is still open
+    monitor.stop(s.id);
+    monitor.start(s); // a fresh start at the new address
+    console.log(`${new Date().toISOString()} ${me.username} moved ${from} to ${s.host}:${s.queryPort}`);
+    return reply(res, 200, serverView(s));
+  }
+  const retryServer = method === "POST" && /^\/api\/servers\/([\w-]+)\/retry$/.exec(pathname);
+  if (retryServer) {
+    if (!store.get(retryServer[1])) return reply(res, 404, { error: "not found" });
+    monitor.pollSoon(retryServer[1]);
+    return reply(res, 200, { ok: true });
   }
 
   // ---- monitoring settings (admin) ----

@@ -253,8 +253,8 @@ test("monitor: configure() re-plans servers that are already waiting, and does n
 });
 
 // Fake-clock harness: every tick() first advances 30 s, like a real poll interval.
-function outageHarness({ webhook = "https://default", offlineAfter = 3, rebootWindowMs = 0, pollMs = 30_000, recheckMs = 5_000, notify, onOutage, onSample } = {}) {
-  let t = 0;
+function outageHarness({ webhook = "https://default", offlineAfter = 3, rebootWindowMs = 0, pollMs = 30_000, recheckMs = 5_000, parkAfterMs = 0, parkedPollMs = 600_000, startAt = 0, offlineSince, notify, onOutage, onSample } = {}) {
+  let t = startAt;
   let next;
   const posts = [];
   const m = new Monitor({
@@ -268,11 +268,13 @@ function outageHarness({ webhook = "https://default", offlineAfter = 3, rebootWi
     rebootWindowMs,
     pollMs,
     recheckMs,
+    parkAfterMs,
+    parkedPollMs,
     onSample,
     onOutage,
     now: () => t,
   });
-  const server = { id: "s1", host: "h", queryPort: 1, webhookUrl: null };
+  const server = { id: "s1", host: "h", queryPort: 1, webhookUrl: null, ...(offlineSince === undefined ? {} : { offlineSince }) };
   m.track(server);
   const tick = async (v, advanceMs = 30_000) => {
     t += advanceMs;
@@ -513,6 +515,58 @@ test("monitor: a restart shorter than offlineAfter x pollMs is caught, timed fro
   assert.deepEqual(posts, []); // and it is a restart, so Discord hears nothing
 });
 
+const DAY = 86_400_000;
+
+test("monitor: a server offline for parkAfterMs is parked once: one message, slow polling, unparked the moment it answers", async () => {
+  const { posts, tick, status, delay } = outageHarness({ rebootWindowMs: 10 * 60e3, parkAfterMs: 7 * DAY, parkedPollMs: 600_000 });
+  await tick(info(20));
+  for (let i = 0; i < 3; i++) await tick(down());
+  await tick(down(), 15 * 60e3); // past the restart window: the outage is announced
+  assert.equal(posts.length, 1);
+  assert.deepEqual([status().parked, delay()], [false, 30_000]); // an ordinary outage is polled at the normal rate
+  await tick(down(), 6 * DAY);
+  assert.deepEqual([status().parked, posts.length], [false, 1]); // 6 days is not 7
+  await tick(down(), 2 * DAY);
+  assert.deepEqual([status().parked, delay(), posts.length], [true, 600_000, 2]);
+  assert.match(posts[1], /^\*\*N\*\* \(h:1\) has been offline for 8d \d+h and is now \*\*parked\*\*/);
+  await tick(down(), 600_000);
+  await tick(down(), 600_000);
+  assert.equal(posts.length, 2); // said once
+  await tick(info(4));
+  assert.deepEqual([status().parked, status().state, delay()], [false, "online", 30_000]);
+  assert.match(posts[2], /back online\*\* after 8d/);
+});
+
+test("monitor: parkAfterMs 0 never parks and applies live; a server that never answered parks without a message", async () => {
+  const a = outageHarness({ rebootWindowMs: 10 * 60e3, parkAfterMs: 0 });
+  await a.tick(info(1));
+  for (let i = 0; i < 3; i++) await a.tick(down());
+  await a.tick(down(), 30 * DAY);
+  assert.deepEqual([a.status().parked, a.delay()], [false, 30_000]);
+  a.m.configure({ parkAfterMs: 7 * DAY }); // the admin panel changed it
+  assert.deepEqual([a.status().parked, a.delay()], [true, 600_000]);
+
+  const typo = outageHarness({ rebootWindowMs: 10 * 60e3, parkAfterMs: 7 * DAY });
+  for (let i = 0; i < 3; i++) await typo.tick(down());
+  await typo.tick(down(), 8 * DAY);
+  assert.deepEqual([typo.status().state, typo.status().parked, typo.posts], ["offline", true, []]);
+});
+
+test("monitor: the offline clock saved in servers.json survives a restart of the app", async () => {
+  const events = [];
+  const { posts, tick, status, delay } = outageHarness({
+    rebootWindowMs: 10 * 60e3, parkAfterMs: 7 * DAY, startAt: 10 * DAY, offlineSince: DAY, onOutage: (s, kind, at) => events.push([kind, at]),
+  });
+  assert.deepEqual([status().state, status().parked, status().offlineSince, delay()], ["offline", true, new Date(DAY).toISOString(), 600_000]); // before any poll
+  await tick(down());
+  await tick(down());
+  assert.deepEqual(posts, []); // neither "offline" nor "parked" was already sent before the restart, so neither is sent again
+  assert.deepEqual(events, [["start", 10 * DAY + 30_000]]); // this run's history interval begins at the first failed poll, once
+  await tick(info(2));
+  assert.match(posts[0], /back online\*\* after 9d/); // counted from the original clock, not from the restart
+  assert.deepEqual([events[1][0], status().state, status().parked], ["end", "online", false]);
+});
+
 test("formatDuration is compact and rounds down to the largest useful unit", () => {
   assert.deepEqual([5_000, 150_000, 3_600_000, 3 * 3_600_000 + 5 * 60_000, 52 * 3_600_000].map(formatDuration), ["5s", "2m", "1h 0m", "3h 5m", "2d 4h"]);
 });
@@ -569,6 +623,33 @@ test("store: a webhook can be replaced or removed after the fact, with the same 
     assert.deepEqual([a.get(s.id).webhookUrl, a.get(s.id).webhookEnabled], [one, false]);
     a.updateWebhook(s.id, { enabled: true });
     assert.equal("webhookEnabled" in new Store(dir).get(s.id), false); // on is the default, so nothing is stored
+  } finally {
+    fs.rmSync(dir, { recursive: true });
+  }
+});
+
+test("store: the offline clock is written only when it changes; a new address keeps the server's id and webhook", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dw-"));
+  try {
+    const hook = "https://discord.com/api/webhooks/1/abc";
+    const a = new Store(dir);
+    const s = a.add({ host: "1.2.3.4", queryPort: 11301, webhookUrl: hook });
+    a.add({ host: "5.6.7.8", queryPort: 11301 });
+    a.setOffline(s.id, 1000, "My Server");
+    assert.deepEqual([new Store(dir).get(s.id).offlineSince, new Store(dir).get(s.id).lastName], [1000, "My Server"]);
+    fs.rmSync(a.file);
+    a.setOffline(s.id, 1000); // same clock: no write
+    assert.equal(fs.existsSync(a.file), false);
+    a.setOffline(s.id, 2000);
+    assert.equal(new Store(dir).get(s.id).offlineSince, 2000);
+
+    const moved = a.changeAddress(s.id, { host: "9.9.9.9", queryPort: 11302 });
+    assert.deepEqual([moved.id, moved.host, moved.queryPort, moved.webhookUrl], [s.id, "9.9.9.9", 11302, hook]);
+    assert.deepEqual([moved.offlineSince, moved.lastName], [undefined, undefined]); // a new address is a fresh start
+    assert.throws(() => a.changeAddress(s.id, { host: "5.6.7.8", queryPort: 11301 }), /already added/);
+    assert.throws(() => a.changeAddress(s.id, { host: "bad host", queryPort: 1 }), /invalid host/);
+    assert.throws(() => a.changeAddress("nope", { host: "9.9.9.9", queryPort: 1 }), /not found/);
+    assert.deepEqual([new Store(dir).get(s.id).host, new Store(dir).get(s.id).queryPort], ["9.9.9.9", 11302]);
   } finally {
     fs.rmSync(dir, { recursive: true });
   }

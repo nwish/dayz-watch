@@ -62,6 +62,39 @@ export class Store {
     return server;
   }
 
+  // The monitor's offline clock, kept so "offline for N days" survives a restart of this app. sinceMs: when the
+  // server went dark (unix ms), or null once it answers again. name: what it called itself, to recognise it in the
+  // parked list after a restart. Written only when it changes, which is on an outage starting or ending.
+  setOffline(id, sinceMs, name = null) {
+    const server = this.get(id);
+    if (!server) return;
+    if (sinceMs == null) {
+      if (server.offlineSince === undefined && server.lastName === undefined) return;
+      delete server.offlineSince;
+      delete server.lastName;
+    } else {
+      if (server.offlineSince === sinceMs && (name == null || server.lastName === name)) return;
+      server.offlineSince = sinceMs;
+      if (name != null) server.lastName = name;
+    }
+    this.#save();
+  }
+
+  // Point a server at a new address. Its id stays, so its history and webhook stay attached, and the offline
+  // clock is cleared because the new address is a fresh start.
+  changeAddress(id, input) {
+    const server = this.get(id);
+    if (!server) throw new Error("server not found");
+    const { host, queryPort } = validateServerInput(input);
+    if (this.servers.some((s) => s.id !== id && s.host === host && s.queryPort === queryPort)) throw new Error("server already added");
+    server.host = host;
+    server.queryPort = queryPort;
+    delete server.offlineSince;
+    delete server.lastName;
+    this.#save();
+    return server;
+  }
+
   remove(id) {
     const i = this.servers.findIndex((s) => s.id === id);
     if (i < 0) return false;
