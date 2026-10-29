@@ -270,6 +270,7 @@ export class Monitor {
   }
 
   async #send(server, st, msg) {
+    if (server.webhookEnabled === false) return; // muted from the Webhook dialog: nothing goes out, whichever webhook it would use
     const url = server.webhookUrl ?? this.defaultWebhook;
     if (!url) return; // no webhook configured: monitor only, no notification
     try {

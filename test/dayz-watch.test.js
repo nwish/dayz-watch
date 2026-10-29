@@ -279,9 +279,29 @@ function outageHarness({ webhook = "https://default", offlineAfter = 3, rebootWi
     next = v;
     await m.tick(server);
   };
-  return { m, posts, tick, status: () => m.status("s1"), delay: () => m.nextPollDelay("s1") };
+  return { m, server, posts, tick, status: () => m.status("s1"), delay: () => m.nextPollDelay("s1") };
 }
 const down = () => new Error("query timeout");
+
+test("monitor: a server muted with webhookEnabled false posts nothing, via the default or its own webhook, until unmuted", async () => {
+  const viaDefault = outageHarness({ webhook: "https://default" });
+  viaDefault.server.webhookEnabled = false;
+  await viaDefault.tick(info(10));
+  await viaDefault.tick(info(12)); // a player change would be posted
+  assert.deepEqual(viaDefault.posts, []);
+  delete viaDefault.server.webhookEnabled; // unmuted from the Webhook dialog
+  await viaDefault.tick(info(15));
+  assert.equal(viaDefault.posts.length, 1);
+  assert.match(viaDefault.posts[0], /players 12 → \*\*15\*\*/);
+
+  const own = outageHarness({ webhook: null, offlineAfter: 1 });
+  own.server.webhookUrl = "https://own";
+  own.server.webhookEnabled = false;
+  await own.tick(info(5));
+  await own.tick(down()); // offline: the outage message would go to its own webhook
+  assert.equal(own.status().state, "offline");
+  assert.deepEqual(own.posts, []);
+});
 
 test("monitor: offline only after N consecutive failures, announced once; recovery is a fresh baseline", async () => {
   const { posts, tick, status } = outageHarness();
@@ -531,14 +551,24 @@ test("store: a webhook can be replaced or removed after the fact, with the same 
     const two = "https://discord.com/api/webhooks/2/def";
     const a = new Store(dir);
     const s = a.add({ host: "1.2.3.4", queryPort: 11301, webhookUrl: one });
-    a.setWebhook(s.id, ` ${two} `);
+    a.updateWebhook(s.id, { webhookUrl: ` ${two} ` });
     assert.equal(new Store(dir).get(s.id).webhookUrl, two); // trimmed and saved
-    assert.throws(() => a.setWebhook(s.id, "https://discord.com.evil.io/api/webhooks/1/a"), /webhook/);
-    assert.throws(() => a.setWebhook(s.id, 5), /webhook/);
+    assert.throws(() => a.updateWebhook(s.id, { webhookUrl: "https://discord.com.evil.io/api/webhooks/1/a" }), /webhook/);
+    assert.throws(() => a.updateWebhook(s.id, { webhookUrl: 5 }), /webhook/);
     assert.equal(new Store(dir).get(s.id).webhookUrl, two); // a rejected URL changes nothing
-    a.setWebhook(s.id, "");
+    a.updateWebhook(s.id, { webhookUrl: "" });
     assert.equal(new Store(dir).get(s.id).webhookUrl, null); // empty removes it, so the default webhook applies
-    assert.equal(a.setWebhook("nope", one), null);
+    assert.equal(a.updateWebhook("nope", { webhookUrl: one }), null);
+
+    // muting is kept apart from the URL: it survives a reload, leaves the URL alone, and a bad request changes neither
+    a.updateWebhook(s.id, { webhookUrl: one });
+    a.updateWebhook(s.id, { enabled: false });
+    assert.deepEqual([new Store(dir).get(s.id).webhookUrl, new Store(dir).get(s.id).webhookEnabled], [one, false]);
+    assert.throws(() => a.updateWebhook(s.id, { webhookUrl: two, enabled: "no" }), /enabled must be true or false/);
+    assert.throws(() => a.updateWebhook(s.id, { webhookUrl: "http://169.254.169.254/", enabled: true }), /webhook/);
+    assert.deepEqual([a.get(s.id).webhookUrl, a.get(s.id).webhookEnabled], [one, false]);
+    a.updateWebhook(s.id, { enabled: true });
+    assert.equal("webhookEnabled" in new Store(dir).get(s.id), false); // on is the default, so nothing is stored
   } finally {
     fs.rmSync(dir, { recursive: true });
   }

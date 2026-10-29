@@ -205,6 +205,7 @@ function serverView(s) {
     host: s.host,
     queryPort: s.queryPort,
     hasWebhook: Boolean(s.webhookUrl), // never echo the webhook URL back
+    webhookEnabled: s.webhookEnabled !== false, // false = alerts muted for this server; the URL (if any) stays saved
     ...status,
   };
 }
@@ -323,11 +324,16 @@ async function api(req, res, url, session) {
   const hookServer = method === "PUT" && /^\/api\/servers\/([\w-]+)\/webhook$/.exec(pathname);
   if (hookServer) {
     const body = await readJson(req);
-    // The field has to be there: a request without it must not wipe the webhook by accident.
-    if (body === null || typeof body !== "object" || !("webhookUrl" in body)) throw new Error('invalid request: webhookUrl is required (null or "" removes the webhook)');
-    const s = store.setWebhook(hookServer[1], body.webhookUrl);
+    // At least one field has to be there: a request without any must not change (or wipe) anything by accident.
+    if (body === null || typeof body !== "object" || !("webhookUrl" in body || "enabled" in body)) {
+      throw new Error('invalid request: send webhookUrl (null or "" removes it) and/or enabled (true or false)');
+    }
+    const s = store.updateWebhook(hookServer[1], { webhookUrl: body.webhookUrl, enabled: body.enabled });
     if (!s) return reply(res, 404, { error: "not found" });
-    console.log(`${new Date().toISOString()} ${me.username} ${s.webhookUrl ? "changed" : "removed"} the webhook of ${s.host}:${s.queryPort}`);
+    const did = [];
+    if ("webhookUrl" in body) did.push(s.webhookUrl ? "changed the webhook" : "removed the webhook");
+    if ("enabled" in body) did.push(s.webhookEnabled === false ? "muted alerts" : "unmuted alerts");
+    console.log(`${new Date().toISOString()} ${me.username} ${did.join(" and ")} of ${s.host}:${s.queryPort}`);
     return reply(res, 200, serverView(s));
   }
 

@@ -333,7 +333,7 @@ test("a server's Discord webhook can be changed or removed, is validated, and is
   const added = await admin.call("POST", "/api/servers", { host: "127.0.0.1", queryPort: dayzPort });
   const id = added.json.id;
   try {
-    assert.equal(added.json.hasWebhook, false);
+    assert.deepEqual([added.json.hasWebhook, added.json.webhookEnabled], [false, true]);
     const set = await put(id, { webhookUrl: hook });
     assert.equal(set.status, 200);
     assert.equal(set.json.hasWebhook, true);
@@ -348,6 +348,17 @@ test("a server's Discord webhook can be changed or removed, is validated, and is
     }
     assert.equal((await put(id, {})).status, 400); // a request without the field must not wipe it
     assert.equal((await admin.call("GET", "/api/servers")).json.servers.find((s) => s.id === id).hasWebhook, true);
+
+    // muting keeps the URL, needs no URL in the request, and a rejected request changes nothing, not even the toggle
+    const stored = () => JSON.parse(fs.readFileSync(path.join(dataDir, "servers.json"), "utf8")).servers.find((s) => s.id === id);
+    const muted = await put(id, { enabled: false });
+    assert.deepEqual([muted.status, muted.json.hasWebhook, muted.json.webhookEnabled], [200, true, false]);
+    assert.deepEqual([stored().webhookUrl, stored().webhookEnabled], [hook, false]);
+    assert.equal((await put(id, { enabled: "no" })).status, 400);
+    assert.equal((await put(id, { webhookUrl: "http://169.254.169.254/", enabled: true })).status, 400);
+    assert.equal((await admin.call("GET", "/api/servers")).json.servers.find((s) => s.id === id).webhookEnabled, false);
+    const on = await put(id, { enabled: true });
+    assert.deepEqual([on.json.hasWebhook, on.json.webhookEnabled, "webhookEnabled" in stored()], [true, true, false]);
 
     assert.equal((await put("nope", { webhookUrl: hook })).status, 404);
     for (const none of ["", null]) {

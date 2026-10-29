@@ -46,12 +46,18 @@ export class Store {
     return server;
   }
 
-  // Replace a server's Discord webhook. null or "" removes it, so the default webhook (if any) applies. The URL gets
-  // the same check as when a server is added. Returns the server, or null when there is no such id.
-  setWebhook(id, webhookUrl) {
+  // Change a server's Discord webhook. { webhookUrl } replaces it, or removes it when null or "" (the default webhook,
+  // if any, then applies); the URL gets the same check as when a server is added. { enabled: false } mutes every
+  // message for this server but keeps the URL; true unmutes it. Anything invalid is rejected before anything is
+  // changed. Returns the server, or null when there is no such id.
+  updateWebhook(id, { webhookUrl, enabled } = {}) {
     const server = this.get(id);
     if (!server) return null;
-    server.webhookUrl = validateServerInput({ host: server.host, queryPort: server.queryPort, webhookUrl }).webhookUrl;
+    const url = webhookUrl === undefined ? undefined : validateServerInput({ host: server.host, queryPort: server.queryPort, webhookUrl }).webhookUrl;
+    if (enabled !== undefined && typeof enabled !== "boolean") throw new Error("invalid request: enabled must be true or false");
+    if (url !== undefined) server.webhookUrl = url;
+    if (enabled === false) server.webhookEnabled = false;
+    else if (enabled === true) delete server.webhookEnabled; // on is the default, so servers.json only records the exception
     this.#save();
     return server;
   }
