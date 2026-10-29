@@ -47,6 +47,9 @@
   #hook-dialog .switch input:checked + .track::after { transform: translateX(1.1rem); background: var(--ok); }
   #hook-dialog .switch input:focus-visible + .track { border-color: var(--hl); box-shadow: 0 0 0 1px var(--hl); }
   #hook-dialog .hint { margin: 0 0 1rem; font-size: .85rem; }
+  #hook-dialog .switch:has(input:disabled) { opacity: .5; cursor: default; }
+  #hook-dialog .switch input:disabled + .track { background: var(--field); border-color: var(--line); }
+  #hook-dialog .switch input:disabled + .track::after { transform: none; background: var(--dim); }
   #hook-dialog #hook-msg { min-height: 1.2em; margin-bottom: .6rem; }
   #hook-dialog .actions { align-items: center; }
   #hook-dialog .spacer { flex: 1; }
@@ -877,10 +880,19 @@ const hookState = document.getElementById("hook-state");
 const hookMsg = document.getElementById("hook-msg");
 const hookRemove = document.getElementById("hook-remove");
 let hookServer = null;
-const syncHookState = () => (hookState.textContent = hookEnabled.checked ? "Alerts on" : "Alerts muted");
+let hookHasTarget = false; // something to mute: its own webhook, the default one, or (below) a URL typed into the box
+const syncHookState = () => {
+  hookEnabled.disabled = !(hookHasTarget || hookUrl.value.trim());
+  hookState.textContent = hookEnabled.disabled ? "No webhook set" : hookEnabled.checked ? "Alerts on" : "Alerts muted";
+  document.getElementById("hook-hint").textContent = hookEnabled.disabled
+    ? "Add a webhook to switch alerts on or off."
+    : "Muted: nothing is posted for this server, but its webhook stays saved.";
+};
 hookEnabled.onchange = syncHookState;
+hookUrl.addEventListener("input", syncHookState);
 function openHook(s, defaultWebhook) {
   hookServer = s;
+  hookHasTarget = s.hasWebhook || Boolean(defaultWebhook);
   hookUrl.value = "";
   hookEnabled.checked = s.webhookEnabled;
   syncHookState();
