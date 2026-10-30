@@ -65,6 +65,7 @@
   header { margin-bottom: 1rem; }
   section { margin-top: 2rem; }
   section h2 { font-size: 1.05rem; }
+  #parked-msg { min-height: 1.2em; margin: 0 0 .6rem; }
   .row-actions { display: flex; flex-wrap: nowrap; align-items: stretch; justify-content: flex-end; gap: .4rem; white-space: nowrap; }
   .row-actions > * { margin: 0; }
   /* The row's Discord button: green = its own webhook is posting, orange = alerts muted, plain = nothing set. */
@@ -154,6 +155,13 @@
     #rows td:nth-child(5) { grid-area: status; font-size: .85em; }
     #rows td:nth-child(6) { grid-area: act; justify-self: end; }
     #rows td button { margin: 0; }
+    #parked-rows tr { display: grid; grid-template-columns: 1fr auto; grid-template-areas: "name name" "addr down" "act act"; gap: .25rem .8rem; padding: .8rem .2rem; border-bottom: 1px solid var(--line); align-items: center; }
+    #parked-rows td { border: 0; padding: 0; }
+    #parked-rows td:nth-child(1) { grid-area: name; font-weight: 600; overflow-wrap: anywhere; }
+    #parked-rows td:nth-child(2) { grid-area: addr; color: var(--dim); overflow-wrap: anywhere; }
+    #parked-rows td:nth-child(3) { grid-area: down; justify-self: end; }
+    #parked-rows td:nth-child(4) { grid-area: act; justify-self: stretch; }
+    #parked-rows .row-actions { flex-wrap: wrap; }
     /* forms stack one field per row */
     #add { grid-template-columns: 1fr; }
     .inline > * { flex: 1 1 100%; }
@@ -199,6 +207,16 @@
   </tr></thead>
   <tbody id="rows"><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
 </table>
+
+<section id="parked" hidden>
+  <h2>Offline for a long time</h2>
+  <p class="muted" id="parked-note"></p>
+  <div id="parked-msg" role="status"></div>
+  <table>
+    <thead><tr><th>Server</th><th>Address</th><th>Offline for</th><th></th></tr></thead>
+    <tbody id="parked-rows"></tbody>
+  </table>
+</section>
 
 <dialog id="add-dialog" aria-labelledby="add-title">
   <div class="dlg-body">
@@ -372,7 +390,7 @@ function renderMonitor(data) {
   head.className = "head";
   if (!list.length) {
     head.textContent = "Monitoring idle";
-    items.push(head, "Add a server to start polling");
+    items.push(head, data.parkedCount ? `${data.parkedCount} parked server${data.parkedCount === 1 ? "" : "s"} below` : "Add a server to start polling");
   } else {
     head.textContent = `Monitoring ${list.length} server${list.length === 1 ? "" : "s"}`;
     const counts = document.createElement("span");
@@ -387,6 +405,7 @@ function renderMonitor(data) {
     items.push(`Last check ${lastCheck ? ago(lastCheck) : "pending"}`);
     items.push(`Offline after ${data.offlineAfter} failed polls`);
     if (data.rebootWindowMinutes > 0) items.push(`Restart window ${secs(data.rebootWindowMinutes * 60)}`);
+    if (data.parkedCount) items.push(`${data.parkedCount} parked, checked every ${secs(data.parkedPollMinutes * 60)}`);
   }
   monbar.dataset.tone = !list.length ? "" : offline ? "err" : restarting || checking ? "warn" : "ok";
   monbar.replaceChildren(...items.map((it) => (typeof it === "string" ? Object.assign(document.createElement("span"), { textContent: it }) : it)));
@@ -457,11 +476,15 @@ setSort(sort.key, sort.dir); // reflect a saved choice in the header, the select
 async function load() {
   const { data } = await api("/api/servers");
   offlineAfter = data.offlineAfter ?? offlineAfter;
+  const parked = data.servers.filter((s) => s.parked);
+  data.servers = data.servers.filter((s) => !s.parked); // a parked server has its own list below the table
+  data.parkedCount = parked.length;
   renderMonitor(data);
   const currentIds = new Set(data.servers.map((s) => s.id));
   for (const id of seenChecks.keys()) if (!currentIds.has(id)) seenChecks.delete(id);
   lastData = data;
   renderRows(data);
+  renderParked(parked, data);
   refreshOverlay(data.servers);
 }
 
@@ -469,7 +492,7 @@ function renderRows(data) {
   rows.replaceChildren();
   if (!data.servers.length) {
     const tr = rows.insertRow();
-    const td = cell(tr, "No servers yet.", "muted");
+    const td = cell(tr, data.parkedCount ? "No active servers." : "No servers yet.", "muted");
     td.colSpan = 6;
   }
   for (const s of sortServers(data.servers)) {
@@ -516,6 +539,82 @@ function renderRows(data) {
     actions.className = "row-actions";
     actions.append(stats, hook, btn);
     td.append(actions);
+  }
+}
+
+// ---- Servers offline for a long time ----
+// A server offline for PARK_AFTER_DAYS leaves the table above and is only checked every PARKED_POLL_MINUTES. It
+// comes back by itself if it answers; otherwise the user retries it, points it at a new address, or removes it.
+const parkedBox = document.getElementById("parked");
+const parkedRows = document.getElementById("parked-rows");
+const parkedMsg = document.getElementById("parked-msg");
+let parkedIds = new Set();
+function parkedNote(text, ok = true) {
+  parkedMsg.textContent = text;
+  parkedMsg.className = ok ? "ok" : "err";
+}
+function parkedButton(text, run) {
+  const b = document.createElement("button");
+  b.textContent = text;
+  b.onclick = async () => {
+    b.disabled = true;
+    try {
+      await run();
+    } finally {
+      b.disabled = false;
+    }
+  };
+  return b;
+}
+function renderParked(list, data) {
+  parkedIds = new Set(list.map((s) => s.id));
+  parkedBox.hidden = !list.length;
+  parkedRows.replaceChildren();
+  if (!list.length) return parkedNote("");
+  const days = data.parkAfterDays;
+  document.getElementById("parked-note").textContent = `Offline for more than ${days} day${days === 1 ? "" : "s"}. Each is checked only every ${secs(data.parkedPollMinutes * 60)} and comes back to the list above by itself if it answers. If it has moved, change its address; if it is gone, remove it.`;
+  for (const s of list) {
+    const label = s.info?.name ?? s.lastName ?? `${s.host}:${s.queryPort}`;
+    const tr = parkedRows.insertRow();
+    cell(tr, s.info?.name ?? s.lastName ?? "—");
+    cell(tr, `${s.host}:${s.queryPort}`);
+    cell(tr, `${span(s.offlineSince)} (since ${new Date(s.offlineSince).toLocaleDateString()})`, "err").title = s.error ?? "";
+    const retry = parkedButton("Retry now", async () => {
+      parkedNote(`Checking ${label}…`);
+      await api(`/api/servers/${s.id}/retry`, { method: "POST" });
+      await new Promise((r) => setTimeout(r, 5000)); // a failed query takes a few seconds to give up
+      await load();
+      parkedNote(parkedIds.has(s.id) ? `${label} is still not answering.` : `${label} answered and is back in the list above.`, !parkedIds.has(s.id));
+    });
+    const change = parkedButton("Change address", async () => {
+      const typed = await ask({
+        title: "Change address",
+        text: `New host:query port for ${label}. Its history and Discord webhook stay with it. The new address has to answer as a DayZ server right now.`,
+        confirmLabel: "Change",
+        input: { value: `${s.host}:${s.queryPort}`, placeholder: "host:port" },
+      });
+      if (typed === null) return;
+      const m = /^\s*(.+?):(\d{1,5})\s*$/.exec(typed);
+      if (!m) return parkedNote("Enter it as host:port, for example 85.190.157.254:2305.", false);
+      parkedNote("Checking the new address…");
+      const res = await api(`/api/servers/${s.id}`, { method: "PATCH", body: { host: m[1], queryPort: Number(m[2]) } });
+      if (!res.ok) return parkedNote(res.data.error ?? "Could not change the address.", false);
+      parkedNote(`${label} now points at ${m[1]}:${m[2]}.`);
+      load();
+    });
+    const stats = document.createElement("a");
+    stats.className = "btn";
+    stats.textContent = "Stats";
+    stats.href = `/servers/${encodeURIComponent(s.id)}`;
+    const remove = parkedButton("Remove", async () => {
+      if (!(await ask({ title: "Remove server", text: `Remove ${s.host}:${s.queryPort}? Its history is deleted too.`, confirmLabel: "Remove" }))) return;
+      await api(`/api/servers/${s.id}`, { method: "DELETE" });
+      load();
+    });
+    const actions = document.createElement("div");
+    actions.className = "row-actions";
+    actions.append(retry, change, stats, remove);
+    tr.insertCell().append(actions);
   }
 }
 

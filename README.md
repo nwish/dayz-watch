@@ -65,10 +65,12 @@ See [.env.example](.env.example) - copy to `.env` and edit to your liking.
 | `OFFLINE_AFTER` | 3 | Consecutive failed polls before a server counts as offline. |
 | `RECHECK_SECONDS` | 5 | While a server isn't answering it is polled this often instead (minimum 2). Set it to `POLL_SECONDS` or more to turn rechecks off. |
 | `REBOOT_WINDOW_MINUTES` | 10 | A server down for less than this is a normal restart, not an outage: no Discord message, shown as "restarting?". `0` treats every offline server as an outage. |
+| `PARK_AFTER_DAYS` | 7 | A server offline this many days is **parked**: it leaves the main list for *Offline for a long time* and is checked far less often (see below). `0` never parks. |
+| `PARKED_POLL_MINUTES` | 10 | How often a parked server is checked. |
 | `DIRECTORY_URL` | DZSA Launcher list | JSON list of public servers for the add-server search. Override only to point at a compatible mirror. |
 | `HOST_PORT` | 8080 | Host port published by compose (the container always listens on 8080). |
 
-The four monitoring variables (`POLL_SECONDS`, `OFFLINE_AFTER`, `RECHECK_SECONDS`, `REBOOT_WINDOW_MINUTES`) are only the **defaults**. An admin can change them on the **Admin** page under *Monitoring settings*; a saved value overrides the environment, applies to every server at once without a restart, and is kept in `settings.json`. Only the values you changed are saved, so the rest keep following `.env`. **Reset** drops an override and the `.env` value applies again. The panel accepts `POLL_SECONDS` 5–3600, `OFFLINE_AFTER` 1–100 (whole number), `RECHECK_SECONDS` 2–3600 and `REBOOT_WINDOW_MINUTES` 0–1440.
+The six monitoring variables (`POLL_SECONDS`, `OFFLINE_AFTER`, `RECHECK_SECONDS`, `REBOOT_WINDOW_MINUTES`, `PARK_AFTER_DAYS`, `PARKED_POLL_MINUTES`) are only the **defaults**. An admin can change them on the **Admin** page under *Monitoring settings*; a saved value overrides the environment, applies to every server at once without a restart, and is kept in `settings.json`. Only the values you changed are saved, so the rest keep following `.env`. **Reset** drops an override and the `.env` value applies again. The panel accepts `POLL_SECONDS` 5–3600, `OFFLINE_AFTER` 1–100 (whole number), `RECHECK_SECONDS` 2–3600, `REBOOT_WINDOW_MINUTES` 0–1440, `PARK_AFTER_DAYS` 0–365 and `PARKED_POLL_MINUTES` 1–1440.
 
 Data lives in the `dayz-watch-data` volume: `servers.json` (per-server webhook URLs in plain text, never returned by the API), `users.json` (scrypt password hashes, mode 600), `settings.json` (the admin panel's monitoring overrides) and `stats.db` (the 90-day player history, SQLite; the `-wal`/`-shm` files are normal).
 
@@ -103,6 +105,8 @@ A server is **offline** after `OFFLINE_AFTER` failed polls in a row; one dropped
 - **Back after an outage:** one message, `**Name** (map) is **back online** after 12m: 5/60 players`, counted from the first failed poll.
 - A server that has never answered since the app started (a mistyped host or port) shows offline but is **not** announced, so a typo can't ping your channel. An outage already underway when the app restarts isn't announced again.
 - The overlay dims the count and mutes alerts while a server is dark.
+- **Parked after `PARK_AFTER_DAYS` offline (default 7).** A server that has been dark that long moves from the main table to its own *Offline for a long time* list, so a dead or moved server stops cluttering the page and the status bar. It is checked only every `PARKED_POLL_MINUTES` (default 10), keeps its history and webhook, and comes back to the main table by itself the moment it answers (with the usual back-online message). With a webhook, one message says it was parked, but only if its offline message had been sent. Per parked server you can **Retry now**, **Change address** (same server, same history; the new address must answer as a DayZ server) or **Remove**. The app does not try to find a moved server itself: server names are not unique and a server's Steam ID can change on every restart, so a guess could attach someone else's server to your history.
+- The offline clock is saved in `servers.json` (`offlineSince`, plus the last name seen), so restarting or redeploying the app doesn't restart the count toward parking. A server that was already offline comes back up as offline, and its eventual return is announced.
 
 ## Adding servers to monitor
 

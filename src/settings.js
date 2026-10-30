@@ -15,6 +15,8 @@ export const FIELDS = {
   offlineAfter: { env: "OFFLINE_AFTER", fallback: 3, min: 1, max: 100, integer: true, label: "Failed polls before offline" },
   recheckSeconds: { env: "RECHECK_SECONDS", fallback: 5, min: 2, max: 3600, label: "Recheck interval while not answering (seconds)" },
   rebootWindowMinutes: { env: "REBOOT_WINDOW_MINUTES", fallback: 10, min: 0, max: 1440, label: "Restart window (minutes)" },
+  parkAfterDays: { env: "PARK_AFTER_DAYS", fallback: 7, min: 0, max: 365, label: "Park a server after (days offline, 0 = never)" },
+  parkedPollMinutes: { env: "PARKED_POLL_MINUTES", fallback: 10, min: 1, max: 1440, label: "Check a parked server every (minutes)" },
 };
 
 function fromEnv(f, raw) {

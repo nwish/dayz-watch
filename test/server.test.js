@@ -371,6 +371,47 @@ test("a server's Discord webhook can be changed or removed, is validated, and is
   }
 }, { timeout: 30_000 });
 
+test("a server can be pointed at a new address that answers as DayZ (same id), and re-checked on demand", async () => {
+  const admin = await loginAs("admin", ADMIN_PW);
+  const here = await fakeA2S(() => 1);
+  const there = await fakeA2S(() => 7);
+  const silent = dgram.createSocket("udp4");
+  await new Promise((r) => silent.bind(0, "127.0.0.1", r));
+  const at = (port) => ({ host: "127.0.0.1", queryPort: port });
+  const ids = [];
+  try {
+    const a = await admin.call("POST", "/api/servers", at(here.address().port));
+    const b = await admin.call("POST", "/api/servers", at(dayzPort));
+    ids.push(a.json.id, b.json.id);
+    const listing = (await admin.call("GET", "/api/servers")).json;
+    assert.deepEqual([listing.parkAfterDays, listing.parkedPollMinutes, listing.servers.find((s) => s.id === a.json.id).parked], [7, 10, false]);
+
+    const dead = await admin.call("PATCH", `/api/servers/${a.json.id}`, at(silent.address().port));
+    assert.equal(dead.status, 400);
+    assert.match(dead.json.error, /no answer from/);
+    const taken = await admin.call("PATCH", `/api/servers/${a.json.id}`, at(dayzPort));
+    assert.equal(taken.status, 400);
+    assert.match(taken.json.error, /already added/);
+    assert.equal((await admin.call("PATCH", "/api/servers/nope", at(there.address().port))).status, 404);
+
+    const moved = await admin.call("PATCH", `/api/servers/${a.json.id}`, at(there.address().port));
+    assert.equal(moved.status, 200);
+    assert.deepEqual([moved.json.id, moved.json.queryPort], [a.json.id, there.address().port]);
+    const after = (await admin.call("GET", "/api/servers")).json.servers.filter((s) => s.id === a.json.id);
+    assert.deepEqual(after.map((s) => s.queryPort), [there.address().port]); // moved, not duplicated
+    assert.equal((await admin.call("POST", "/api/servers", at(here.address().port))).status, 201); // the old address is free again
+    ids.push((await admin.call("GET", "/api/servers")).json.servers.find((s) => s.queryPort === here.address().port).id);
+
+    assert.equal((await admin.call("POST", `/api/servers/${a.json.id}/retry`)).status, 200);
+    assert.equal((await admin.call("POST", "/api/servers/nope/retry")).status, 404);
+  } finally {
+    for (const id of ids) await admin.call("DELETE", `/api/servers/${id}`);
+    here.close();
+    there.close();
+    silent.close();
+  }
+}, { timeout: 30_000 });
+
 test("account: the change-password page needs a session", async () => {
   const anon = client();
   const anonPage = await anon.call("GET", "/account");

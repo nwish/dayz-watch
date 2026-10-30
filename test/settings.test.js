@@ -11,9 +11,9 @@ const values = (s) => Object.fromEntries(Object.entries(s.describe()).map(([k, v
 test("defaults come from the environment, clamped into range; junk falls back to the built-in value", () => {
   const dir = tmp();
   try {
-    assert.deepEqual(values(new Settings(dir, {})), { pollSeconds: 30, offlineAfter: 3, recheckSeconds: 5, rebootWindowMinutes: 10 });
-    const env = { POLL_SECONDS: "1", OFFLINE_AFTER: "2.9", RECHECK_SECONDS: "abc", REBOOT_WINDOW_MINUTES: "0" };
-    assert.deepEqual(values(new Settings(dir, env)), { pollSeconds: 5, offlineAfter: 2, recheckSeconds: 5, rebootWindowMinutes: 0 });
+    assert.deepEqual(values(new Settings(dir, {})), { pollSeconds: 30, offlineAfter: 3, recheckSeconds: 5, rebootWindowMinutes: 10, parkAfterDays: 7, parkedPollMinutes: 10 });
+    const env = { POLL_SECONDS: "1", OFFLINE_AFTER: "2.9", RECHECK_SECONDS: "abc", REBOOT_WINDOW_MINUTES: "0", PARK_AFTER_DAYS: "-5", PARKED_POLL_MINUTES: "9999" };
+    assert.deepEqual(values(new Settings(dir, env)), { pollSeconds: 5, offlineAfter: 2, recheckSeconds: 5, rebootWindowMinutes: 0, parkAfterDays: 0, parkedPollMinutes: 1440 });
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -28,11 +28,14 @@ test("a saved override beats the environment and survives a restart; null goes b
     assert.deepEqual([after.pollSeconds.value, after.pollSeconds.default, after.pollSeconds.overridden], [15, 60, true]);
 
     const reloaded = new Settings(dir, env);
-    assert.deepEqual(values(reloaded), { pollSeconds: 15, offlineAfter: 4, recheckSeconds: 5, rebootWindowMinutes: 10 });
+    assert.deepEqual(values(reloaded), { pollSeconds: 15, offlineAfter: 4, recheckSeconds: 5, rebootWindowMinutes: 10, parkAfterDays: 7, parkedPollMinutes: 10 });
 
     reloaded.update({ pollSeconds: null });
     assert.equal(new Settings(dir, env).values.pollSeconds, 60); // the environment applies again
     assert.equal(new Settings(dir, { POLL_SECONDS: "90" }).values.pollSeconds, 90); // and a later .env change is followed
+    assert.equal(new Settings(dir, { PARK_AFTER_DAYS: "3" }).values.parkAfterDays, 3);
+    assert.equal(reloaded.update({ parkAfterDays: 0 }).parkAfterDays.value, 0); // 0 is a real value (never park), not "unset"
+    assert.throws(() => reloaded.update({ parkedPollMinutes: 0 }), SettingsError);
     assert.equal(new Settings(dir, env).values.offlineAfter, 4); // the other override is untouched
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

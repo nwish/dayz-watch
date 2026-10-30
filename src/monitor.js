@@ -25,6 +25,10 @@ export function formatBackOnline(info, downMs) {
   return `**${info.name}** (${info.map}) is **back online** after ${formatDuration(downMs)}: ${info.players}/${info.maxPlayers} players`;
 }
 
+export function formatParked(name, address, downMs, parkedPollMs) {
+  return `**${name}** (${address}) has been offline for ${formatDuration(downMs)} and is now **parked**: it moves to the "Offline for a long time" list and is only checked every ${formatDuration(parkedPollMs)}. It returns by itself if it answers; otherwise remove it or change its address.`;
+}
+
 export async function postWebhook(url, content) {
   const r = await fetch(url, {
     method: "POST",
@@ -51,7 +55,9 @@ export class Monitor {
   // down after this long (0 = tell it as soon as the server counts as offline).
   // onOutage(server, "start" | "end", atMs, players): an outage began (first failed poll) or ended (first answered
   // poll, with the player count it reported).
-  constructor({ query, notify = postWebhook, defaultWebhook = null, pollMs = 30_000, recheckMs = 5_000, onSample = null, onOutage = null, offlineAfter = 3, rebootWindowMs = 10 * 60e3, now = Date.now }) {
+  // parkAfterMs: a server offline this long is "parked": it is checked only every parkedPollMs instead of every pollMs
+  // and one Discord message says so (0 = never park). A server that answers again is unparked at once.
+  constructor({ query, notify = postWebhook, defaultWebhook = null, pollMs = 30_000, recheckMs = 5_000, onSample = null, onOutage = null, offlineAfter = 3, rebootWindowMs = 10 * 60e3, parkAfterMs = 0, parkedPollMs = 10 * 60e3, now = Date.now }) {
     this.query = query;
     this.notify = notify;
     this.defaultWebhook = defaultWebhook;
@@ -60,6 +66,8 @@ export class Monitor {
     this.onSample = onSample;
     this.offlineAfter = offlineAfter;
     this.rebootWindowMs = rebootWindowMs;
+    this.parkAfterMs = parkAfterMs;
+    this.parkedPollMs = parkedPollMs;
     this.now = now;
     this.onOutage = onOutage;
     this.state = new Map(); // id -> per-server polling state, see track()
@@ -85,6 +93,10 @@ export class Monitor {
 
   // Register a server without starting its loop.
   track(server) {
+    // server.offlineSince (unix ms) is the offline clock saved in servers.json, so a restart of this app doesn't
+    // reset "offline for N days": such a server starts out offline and parked/not exactly as it was.
+    const since = Number.isFinite(server.offlineSince) ? server.offlineSince : null;
+    const downMs = since === null ? 0 : this.now() - since;
     const st = {
       info: null,
       lastPlayers: null,
@@ -95,12 +107,14 @@ export class Monitor {
       checkedAt: null,
       timer: null,
       stopped: false,
-      state: "unknown", // unknown (no answer yet) | online | offline
-      failures: 0, // consecutive failed polls
-      firstFailureAt: null,
+      state: since === null ? "unknown" : "offline", // unknown (no answer yet) | online | offline
+      failures: since === null ? 0 : this.offlineAfter, // consecutive failed polls
+      firstFailureAt: since,
       lastSeenAt: null, // last successful poll since this process started
-      offlineSince: null,
-      offlineNotified: false, // an "offline" alert went out, so a "back online" one is owed
+      offlineSince: since,
+      offlineNotified: since !== null && downMs >= this.rebootWindowMs, // an "offline" alert went out (before the restart, if resumed), so a "back online" one is owed
+      parkedNotified: since !== null && this.parkAfterMs > 0 && downMs >= this.parkAfterMs,
+      resumed: since !== null, // offline from before this process started: its first failed poll opens this run's history interval
       lastFailSampleAt: 0, // when a failed poll was last written to the history (rechecks are throttled)
       waiting: false, // a poll timer is pending (as opposed to a tick running), see start()
       reschedule: null,
@@ -137,15 +151,20 @@ export class Monitor {
       clearTimeout(st.timer);
       st.timer = setTimeout(loop, delay());
     };
+    st.pollNow = () => {
+      if (!st.waiting || st.stopped) return;
+      clearTimeout(st.timer);
+      st.timer = setTimeout(loop, 0);
+    };
     loop();
   }
 
   // Change the timings of a running monitor (the admin panel does this). The new values apply to every server
   // at once, including ones that are already waiting out a long poll interval.
-  configure({ pollMs = this.pollMs, recheckMs = this.recheckMs, offlineAfter = this.offlineAfter, rebootWindowMs = this.rebootWindowMs }) {
-    const changed = pollMs !== this.pollMs || recheckMs !== this.recheckMs || offlineAfter !== this.offlineAfter || rebootWindowMs !== this.rebootWindowMs;
+  configure({ pollMs = this.pollMs, recheckMs = this.recheckMs, offlineAfter = this.offlineAfter, rebootWindowMs = this.rebootWindowMs, parkAfterMs = this.parkAfterMs, parkedPollMs = this.parkedPollMs }) {
+    const changed = pollMs !== this.pollMs || recheckMs !== this.recheckMs || offlineAfter !== this.offlineAfter || rebootWindowMs !== this.rebootWindowMs || parkAfterMs !== this.parkAfterMs || parkedPollMs !== this.parkedPollMs;
     if (!changed) return;
-    Object.assign(this, { pollMs, recheckMs, offlineAfter, rebootWindowMs });
+    Object.assign(this, { pollMs, recheckMs, offlineAfter, rebootWindowMs, parkAfterMs, parkedPollMs });
     for (const [id, st] of this.state) {
       st.pollSlotMs = pollSlot(id, pollMs);
       st.reschedule?.();
@@ -160,6 +179,16 @@ export class Monitor {
     this.state.delete(id);
   }
 
+  // Offline for at least parkAfterMs (see the constructor).
+  #parked(st) {
+    return this.parkAfterMs > 0 && st.state === "offline" && st.offlineSince !== null && this.now() - st.offlineSince >= this.parkAfterMs;
+  }
+
+  // Poll a waiting server right away (the "Retry now" button). A poll that is already running is left alone.
+  pollSoon(id) {
+    this.state.get(id)?.pollNow?.();
+  }
+
   // Delay before the next poll. While a server isn't answering it is re-polled every recheckMs, so a restart
   // is noticed within seconds and its length is measured to about that precision, instead of being rounded
   // to the poll interval (a restart shorter than offlineAfter x pollMs would otherwise never be seen). The
@@ -168,13 +197,14 @@ export class Monitor {
   nextPollDelay(id) {
     const st = this.state.get(id);
     if (!st || st.failures === 0) return this.pollMs;
+    if (this.#parked(st)) return this.parkedPollMs;
     const fast = st.failures < this.offlineAfter || this.now() - st.firstFailureAt < this.rebootWindowMs;
     return fast ? Math.min(this.recheckMs, this.pollMs) : this.pollMs;
   }
 
   status(id) {
     const st = this.state.get(id);
-    if (!st) return { info: null, ping: null, error: null, checkedAt: null, state: "unknown", failures: 0, offlineSince: null, lastSeenAt: null, likelyRestart: false };
+    if (!st) return { info: null, ping: null, error: null, checkedAt: null, state: "unknown", failures: 0, offlineSince: null, lastSeenAt: null, likelyRestart: false, parked: false };
     const iso = (ms) => (ms == null ? null : new Date(ms).toISOString());
     return {
       info: st.info,
@@ -190,6 +220,7 @@ export class Monitor {
       lastSeenAt: iso(st.lastSeenAt),
       // Offline, but not for long enough yet to be anything other than a normal restart.
       likelyRestart: st.state === "offline" && this.now() - st.offlineSince < this.rebootWindowMs,
+      parked: this.#parked(st),
     };
   }
 
@@ -220,6 +251,9 @@ export class Monitor {
           st.lastPlayers = null; // coming back is a fresh baseline, not a "20 -> 0" change
           this.#outage(server, "start", st.offlineSince);
           console.log(`${ts()} ${address} offline: ${e.message}`);
+        } else if (st.resumed) {
+          st.resumed = false;
+          this.#outage(server, "start", this.now()); // the previous run's interval was closed at startup; this run's begins now
         }
         // Restarts are routine, so only a server still down after the restart window is announced. One we
         // have never seen up since this process started (a mistyped address) shows as offline in the UI
@@ -228,6 +262,11 @@ export class Monitor {
         if (!st.offlineNotified && st.lastSeenAt !== null && downMs >= this.rebootWindowMs) {
           st.offlineNotified = true;
           await this.#send(server, st, formatOffline(st.info?.name ?? address, address, downMs, e.message));
+        }
+        if (this.#parked(st) && !st.parkedNotified) {
+          st.parkedNotified = true;
+          console.log(`${ts()} ${address} parked after ${formatDuration(downMs)} offline`);
+          if (st.offlineNotified) await this.#send(server, st, formatParked(st.info?.name ?? server.lastName ?? address, address, downMs, this.parkedPollMs));
         }
       }
       return;
@@ -250,6 +289,8 @@ export class Monitor {
     st.firstFailureAt = null;
     st.offlineSince = null;
     st.offlineNotified = false;
+    st.parkedNotified = false;
+    st.resumed = false;
     st.lastSeenAt = this.now();
     this.#sample(server, { players: info.players, maxPlayers: info.maxPlayers });
     if (wasOffline) this.#outage(server, "end", this.now(), info.players);
