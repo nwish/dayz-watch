@@ -439,6 +439,52 @@ test("monitor + stats agree on how long an outage lasted (list, 'offline for', a
   assert.match(posts.at(-1), /back online\*\* after 4m/); // formatDuration(270 s)
 });
 
+test("monitor + stats: an app restart during an outage keeps one interval, not a reboot plus a new outage", async () => {
+  let ms = Date.UTC(2026, 9, 24, 22, 0, 0);
+  const stats = new Stats(":memory:", { now: () => ms / 1000 });
+  let next;
+  const wire = () => new Monitor({
+    query: async () => {
+      if (next instanceof Error) throw next;
+      return next;
+    },
+    offlineAfter: 1,
+    rebootWindowMs: 10 * 60e3,
+    now: () => ms,
+    onSample: (s, sample) => stats.record(s.id, sample),
+    onOutage: (s, kind, at, players) => (kind === "start" ? stats.outageStart(s.id, at / 1000) : stats.outageEnd(s.id, at / 1000, players)),
+  });
+
+  next = down();
+  const m1 = wire();
+  const server = { id: "s1", host: "h", queryPort: 1, webhookUrl: null };
+  m1.track(server);
+  ms += 30_000;
+  await m1.tick(server); // 22:00:30: offline, the outage opens
+  const startedAt = ms;
+
+  // The app restarts while the server is still dark; startup closes only outages it won't keep watching.
+  ms += 5 * 60_000;
+  stats.closeOpenOutages(new Set(["s1"]));
+
+  // The second run resumes from the offline clock saved in servers.json.
+  const m2 = wire();
+  const resumed = { id: "s1", host: "h", queryPort: 1, webhookUrl: null, offlineSince: startedAt };
+  m2.track(resumed);
+  ms += 30_000;
+  await m2.tick(resumed); // the resumed failed poll must not open a second interval
+  let q = stats.query("s1", "24h").downtime;
+  assert.equal(q.intervals.length, 1);
+  assert.deepEqual([q.intervals[0].from * 1000, q.intervals[0].ongoing], [startedAt, true]);
+
+  next = info(0);
+  ms += 30_000;
+  await m2.tick(resumed); // answering ends the original interval
+  q = stats.query("s1", "24h").downtime;
+  assert.equal(q.intervals.length, 1);
+  assert.deepEqual([q.intervals[0].from * 1000, q.intervals[0].to * 1000, q.intervals[0].ongoing], [startedAt, ms, false]);
+});
+
 test("monitor: a restart shorter than the window is silent, and the restarted server is a fresh baseline", async () => {
   const { posts, tick, status } = outageHarness({ rebootWindowMs: 10 * 60e3 });
   await tick(info(20));

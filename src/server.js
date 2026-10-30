@@ -77,7 +77,7 @@ if (AUTH_DISABLED) {
 }
 
 const stats = new Stats(path.join(DATA_DIR, "stats.db"), { rebootSeconds: settings.values.rebootWindowMinutes * 60 });
-stats.closeOpenOutages(); // an outage left open by the previous run can't be followed while we were down
+stats.closeOpenOutages(new Set(store.list().map((s) => s.id))); // only servers this run won't watch get their outage ended
 stats.prune();
 setInterval(() => stats.prune(), 60 * 60e3).unref(); // keep 90 days
 const monitor = new Monitor({

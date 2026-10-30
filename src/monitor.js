@@ -253,7 +253,7 @@ export class Monitor {
           console.log(`${ts()} ${address} offline: ${e.message}`);
         } else if (st.resumed) {
           st.resumed = false;
-          this.#outage(server, "start", this.now()); // the previous run's interval was closed at startup; this run's begins now
+          this.#outage(server, "start", this.now()); // usually a no-op: the previous run's interval stayed open across the restart; this only fills one in when it's missing (a restored stats.db)
         }
         // Restarts are routine, so only a server still down after the restart window is announced. One we
         // have never seen up since this process started (a mistyped address) shows as offline in the UI

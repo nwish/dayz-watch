@@ -132,10 +132,13 @@ export class Stats {
   }
 
   // Call once at startup, before polling resumes. An outage still open from the previous run can't be
-  // followed while the app was down, so it ends at the last moment we know we were watching.
-  closeOpenOutages() {
+  // followed while the app was down, so it ends at the last moment we know we were watching — except for
+  // servers in keepIds, which polling resumes watching right away: their interval stays open and the
+  // resumed monitor ends it when the server answers, so an app restart never splits one outage in two.
+  closeOpenOutages(keepIds = new Set()) {
     const now = Math.floor(this.now());
     for (const o of this.db.prepare("SELECT server_id AS id, started FROM outages WHERE ended IS NULL").all()) {
+      if (keepIds.has(o.id)) continue;
       const last = this.db.prepare("SELECT MAX(bucket) AS b FROM samples WHERE server_id = ?").get(o.id).b;
       const watchedUntil = last == null ? o.started : last + BUCKET_S; // end of the last window we have samples for
       const end = Math.max(o.started, Math.min(now, watchedUntil));

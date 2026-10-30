@@ -249,6 +249,21 @@ test("closeOpenOutages ends an outage left open by a previous run at the last mo
   assert.deepEqual([n.from, n.to, n.ongoing], [T0 - 60, T0 - 60, false]);
 });
 
+test("closeOpenOutages keeps a watched server's outage open, so an app restart doesn't split it", () => {
+  const { s, at } = harness();
+  s.record("a", null);
+  s.outageStart("a", T0 - 60);
+  at(T0 + 3600); // the app restarted and will keep watching "a"
+  s.closeOpenOutages(new Set(["a"]));
+  const open = s.query("a", "24h").downtime.intervals[0];
+  assert.deepEqual([open.from, open.to, open.ongoing], [T0 - 60, T0 + 3600, true]); // still one open interval
+  s.outageStart("a", T0 + 3610); // the resumed monitor's start: a no-op while the interval is open
+  s.outageEnd("a", T0 + 3700, 0); // its first answer ends the original one
+  const q = s.query("a", "24h").downtime;
+  assert.equal(q.intervals.length, 1);
+  assert.deepEqual([q.intervals[0].from, q.intervals[0].to], [T0 - 60, T0 + 3700]);
+});
+
 test("downtime is deleted with its server, and pruning keeps open outages", () => {
   const { s, at } = harness();
   s.outageStart("a", T0 - RETENTION_S - 7200);
