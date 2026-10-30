@@ -419,7 +419,7 @@ const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "bas
 const num = (a, b) => a - b;
 const statusRank = (s) => (s.state === "offline" ? (s.likelyRestart ? 3 : 4) : s.failures || s.state === "unknown" ? 2 : s.error ? 1 : 0);
 const SORTS = {
-  name: { label: "Server", value: (s) => s.info?.name ?? null, cmp: collator.compare }, // an unnamed row shows "—", so it goes last
+  name: { label: "Server", value: (s) => s.info?.name ?? s.lastName ?? null, cmp: collator.compare }, // an unnamed row shows "—", so it goes last
   address: { label: "Address", value: (s) => `${s.host}:${s.queryPort}`, cmp: collator.compare },
   map: { label: "Map", value: (s) => s.info?.map ?? null, cmp: collator.compare },
   players: { label: "Players", first: "desc", value: (s) => (s.state === "offline" || !s.info ? null : s.info.players), cmp: num },
@@ -499,7 +499,7 @@ function renderRows(data) {
     const tr = rows.insertRow();
     tr.className = "clickable";
     tr.onclick = () => openOverlay(s);
-    cell(tr, s.info?.name ?? "—");
+    cell(tr, s.info?.name ?? s.lastName ?? "—"); // lastName: the name saved when the outage began, so a restart doesn't blank the row
     cell(tr, `${s.host}:${s.queryPort}`);
     cell(tr, s.info?.map ?? "—");
     const dark = s.state === "offline";
@@ -822,7 +822,7 @@ function closeOverlay() {
 function renderOverlay(s) {
   const i = s.info;
   if (i) applyTheme(i.map, i.gameTime);
-  document.getElementById("ov-name").textContent = i?.name ?? `${s.host}:${s.queryPort}`;
+  document.getElementById("ov-name").textContent = i?.name ?? s.lastName ?? `${s.host}:${s.queryPort}`;
   const offline = s.state === "offline";
   card.classList.toggle("offline", offline);
   card.classList.toggle("restarting", offline && s.likelyRestart);

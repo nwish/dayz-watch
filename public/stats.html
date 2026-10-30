@@ -438,8 +438,8 @@ $("heatwrap").addEventListener("scroll", updateHeatHint, { passive: true });
 window.addEventListener("resize", updateHeatHint);
 
 function render(d) {
-  document.title = `${d.server.info?.name ?? d.server.host} – dayz-watch stats`;
-  $("name").textContent = d.server.info?.name ?? `${d.server.host}:${d.server.queryPort}`;
+  document.title = `${d.server.info?.name ?? d.server.lastName ?? d.server.host} – dayz-watch stats`;
+  $("name").textContent = d.server.info?.name ?? d.server.lastName ?? `${d.server.host}:${d.server.queryPort}`;
   $("addr").textContent = [`${d.server.host}:${d.server.queryPort}`, d.server.info?.map].filter(Boolean).join(" · ");
   for (const b of document.querySelectorAll("#ranges button")) b.setAttribute("aria-pressed", String(b.dataset.range === d.range));
   const sm = d.summary;
