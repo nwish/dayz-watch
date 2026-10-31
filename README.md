@@ -68,6 +68,8 @@ The `dayz-watch-data` volume holds `servers.json` (webhook URLs in plain text, n
 
 The container needs outbound UDP to the query ports and HTTPS to Discord. Beyond a trusted LAN, put TLS in front: the login form sends the password in the clear over plain HTTP.
 
+**Without Docker:** Node 22+, then `npm start` — zero dependencies; `DATA_DIR` (default `./data`) and `PORT` (default 8080) as above.
+
 ## Accounts and login
 
 - `AUTH_DISABLED=true` skips login: every API, including user management, is open to anyone who can reach the app. Trusted LAN or separate access control only.
