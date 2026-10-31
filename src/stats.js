@@ -1,6 +1,6 @@
 // 90-day player-count history. Every poll is folded into a 5-minute bucket per server
 // (poll count, successful polls, sum/min/max players), so a server costs ~26k small rows at the
-// retention limit regardless of POLL_SECONDS. Queries aggregate those buckets to whatever
+// retention limit regardless of pollSeconds. Queries aggregate those buckets to whatever
 // resolution the chart needs. Uses the built-in node:sqlite: no dependencies.
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
@@ -232,7 +232,7 @@ export class Stats {
 
     // Downtime comes from the monitor's exact timestamps, so it matches "Offline for ..." and the Discord
     // messages, and is classified by length: shorter than the restart window is a normal restart, anything
-    // longer an outage. Classifying on read means changing REBOOT_WINDOW_MINUTES re-sorts the history.
+    // longer an outage. Classifying on read means changing rebootWindowMinutes re-sorts the history.
     // An ongoing interval runs to now (and turns from restart into outage once it outlasts the window).
     // A short one that ended with players already online wasn't a restart (a restarted server comes back
     // empty) but isn't an outage either: the server stayed up and only the monitor lost contact, a "blip".

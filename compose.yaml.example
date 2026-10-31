@@ -5,12 +5,25 @@ services:
     # image: ghcr.io/nwish/dayz-watch:latest
     restart: unless-stopped
     ports:
-      - "${HOST_PORT:-8080}:8080"
-    env_file:
-      - path: .env
-        required: false
+      - 8080:8080 # the container always listens on 8080; change the left side for another host port
     environment:
-      PORT: "8080"
+      # First admin account, used only while no users exist; manage users in the web UI afterwards.
+      # Leave ADMIN_PASSWORD empty to have a random one printed once in the container log.
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: ""
+      # true bypasses login on a trusted LAN or behind separate access control: every visitor is the local admin.
+      AUTH_DISABLED: "false"
+      # true allows monitoring servers on loopback/LAN addresses; they are refused otherwise.
+      ALLOW_PRIVATE_ADDRESSES: "false"
+      # Behind an HTTPS reverse proxy: trust X-Forwarded-* headers, and mark the session cookie Secure.
+      TRUST_PROXY: "false"
+      COOKIE_SECURE: "false"
+      # Default Discord webhook for servers added without their own (unset: nothing is posted).
+      DISCORD_WEBHOOK_URL: ""
+      # Server list behind the add-server search box (defaults to the DZSA Launcher public list).
+      # DIRECTORY_URL:
+      # Polling/offline/parking settings are NOT env vars: they live in settings.json in the data volume,
+      # created with defaults on first start and editable on the Admin page.
     volumes:
       - dayz-watch-data:/data
 

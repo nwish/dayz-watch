@@ -293,7 +293,7 @@ test("admin settings: admin-only, all-or-nothing validation, applied live, and n
   assert.deepEqual([saved.json.settings.pollSeconds.overridden, saved.json.settings.recheckSeconds.overridden], [true, false]);
   const live = (await admin.call("GET", "/api/servers")).json;
   assert.deepEqual([live.pollSeconds, live.offlineAfter, live.recheckSeconds, live.rebootWindowMinutes], [20, 5, 5, 10]); // the list the main page reads
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dataDir, "settings.json"), "utf8")), { pollSeconds: 20, offlineAfter: 5 }); // only what was changed
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dataDir, "settings.json"), "utf8")), { pollSeconds: 20, offlineAfter: 5, recheckSeconds: 5, rebootWindowMinutes: 10, parkAfterDays: 7, parkedPollMinutes: 10 }); // the whole file, defaults included
 
   assert.equal((await admin.call("PUT", "/api/admin/settings", { pollSeconds: null, offlineAfter: null })).status, 200);
   const back = (await admin.call("GET", "/api/servers")).json;

@@ -1,6 +1,6 @@
-// Monitoring settings an admin can change at runtime. The environment supplies the defaults; a value saved from
-// the admin panel (data/settings.json) overrides it until it is reset. Only keys the admin actually changed are
-// stored, so editing .env later still moves every setting that was never overridden.
+// Monitoring settings an admin can change at runtime. They live in data/settings.json, which is created with
+// every setting at its built-in default on first start, so it can also be edited by hand (a restart picks the
+// edit up). The admin panel's Reset puts a setting back to its built-in default.
 import fs from "node:fs";
 import path from "node:path";
 
@@ -8,23 +8,17 @@ export class SettingsError extends Error {
   status = 400;
 }
 
-// env: the variable that supplies the default. fallback: used when it is unset or not a number.
-// min/max: the range accepted from the panel; an out-of-range env value is clamped into it instead.
+// fallback: the built-in default. min/max: the range accepted from the panel and from the file.
 export const FIELDS = {
-  pollSeconds: { env: "POLL_SECONDS", fallback: 30, min: 5, max: 3600, label: "Poll interval (seconds)" },
-  offlineAfter: { env: "OFFLINE_AFTER", fallback: 3, min: 1, max: 100, integer: true, label: "Failed polls before offline" },
-  recheckSeconds: { env: "RECHECK_SECONDS", fallback: 5, min: 2, max: 3600, label: "Recheck interval while not answering (seconds)" },
-  rebootWindowMinutes: { env: "REBOOT_WINDOW_MINUTES", fallback: 10, min: 0, max: 1440, label: "Restart window (minutes)" },
-  parkAfterDays: { env: "PARK_AFTER_DAYS", fallback: 7, min: 0, max: 365, label: "Park a server after (days offline, 0 = never)" },
-  parkedPollMinutes: { env: "PARKED_POLL_MINUTES", fallback: 10, min: 1, max: 1440, label: "Check a parked server every (minutes)" },
+  pollSeconds: { fallback: 30, min: 5, max: 3600, label: "Poll interval (seconds)" },
+  offlineAfter: { fallback: 3, min: 1, max: 100, integer: true, label: "Failed polls before offline" },
+  recheckSeconds: { fallback: 5, min: 2, max: 3600, label: "Recheck interval while not answering (seconds)" },
+  rebootWindowMinutes: { fallback: 10, min: 0, max: 1440, label: "Restart window (minutes)" },
+  parkAfterDays: { fallback: 7, min: 0, max: 365, label: "Park a server after (days offline, 0 = never)" },
+  parkedPollMinutes: { fallback: 10, min: 1, max: 1440, label: "Check a parked server every (minutes)" },
 };
 
-function fromEnv(f, raw) {
-  const n = raw == null || raw === "" ? NaN : Number(raw);
-  if (!Number.isFinite(n)) return f.fallback;
-  const v = Math.min(f.max, Math.max(f.min, n));
-  return f.integer ? Math.floor(v) : v;
-}
+const DEFAULTS = Object.fromEntries(Object.entries(FIELDS).map(([k, f]) => [k, f.fallback]));
 
 function validate(key, value) {
   const f = FIELDS[key];
@@ -35,61 +29,66 @@ function validate(key, value) {
 }
 
 export class Settings {
-  constructor(dataDir, env = process.env) {
+  constructor(dataDir) {
     this.file = path.join(dataDir, "settings.json");
-    this.defaults = Object.fromEntries(Object.entries(FIELDS).map(([k, f]) => [k, fromEnv(f, env[f.env])]));
-    this.overrides = {};
+    this.saved = { ...DEFAULTS }; // the file wins for anything it carries
     fs.mkdirSync(dataDir, { recursive: true });
-    if (!fs.existsSync(this.file)) return;
-    let saved;
+    if (!fs.existsSync(this.file)) {
+      this.write(this.saved); // first start: the file shows every setting at its default
+      return;
+    }
+    let loaded;
     try {
-      saved = JSON.parse(fs.readFileSync(this.file, "utf8"));
+      loaded = JSON.parse(fs.readFileSync(this.file, "utf8"));
     } catch (e) {
       console.warn(`ignoring unreadable ${this.file}: ${e.message}`);
       return;
     }
-    for (const [k, v] of Object.entries(saved ?? {})) {
+    for (const [k, v] of Object.entries(loaded ?? {})) {
       try {
         if (!FIELDS[k]) throw new SettingsError(`unknown setting ${k}`);
-        this.overrides[k] = validate(k, v);
+        this.saved[k] = validate(k, v);
       } catch (e) {
         console.warn(`ignoring ${this.file}: ${e.message}`);
       }
     }
   }
 
-  // The effective value of every setting.
+  // The effective value of every setting: the file, with built-in defaults for anything it doesn't carry.
   get values() {
-    return { ...this.defaults, ...this.overrides };
+    return { ...DEFAULTS, ...this.saved };
   }
 
-  // What the admin panel shows: per setting the effective value, the env/built-in default and whether it is overridden.
+  // What the admin panel shows: per setting the effective value, the built-in default and whether it differs.
   describe() {
     const v = this.values;
     return Object.fromEntries(
       Object.entries(FIELDS).map(([k, f]) => [
         k,
-        { value: v[k], default: this.defaults[k], overridden: k in this.overrides, min: f.min, max: f.max, integer: Boolean(f.integer), label: f.label },
+        { value: v[k], default: DEFAULTS[k], overridden: v[k] !== DEFAULTS[k], min: f.min, max: f.max, integer: Boolean(f.integer), label: f.label },
       ]),
     );
   }
 
-  // patch: { key: number } saves an override, { key: null } drops it so the default applies again. Nothing is
+  // patch: { key: number } saves a value, { key: null } resets it to the built-in default. Nothing is
   // changed unless every entry is valid.
   update(patch) {
     if (patch === null || typeof patch !== "object" || Array.isArray(patch)) throw new SettingsError("expected an object of settings");
     const entries = Object.entries(patch);
     if (!entries.length) throw new SettingsError("nothing to change");
-    const next = { ...this.overrides };
+    const next = { ...this.saved };
     for (const [k, v] of entries) {
       if (!FIELDS[k]) throw new SettingsError(`unknown setting ${k}`);
-      if (v === null) delete next[k];
-      else next[k] = validate(k, v);
+      next[k] = v === null ? DEFAULTS[k] : validate(k, v);
     }
-    const tmp = `${this.file}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(next, null, 2));
-    fs.renameSync(tmp, this.file);
-    this.overrides = next;
+    this.write(next);
+    this.saved = next;
     return this.describe();
+  }
+
+  write(values) {
+    const tmp = `${this.file}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(values, null, 2));
+    fs.renameSync(tmp, this.file);
   }
 }

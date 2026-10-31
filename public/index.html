@@ -543,7 +543,7 @@ function renderRows(data) {
 }
 
 // ---- Servers offline for a long time ----
-// A server offline for PARK_AFTER_DAYS leaves the table above and is only checked every PARKED_POLL_MINUTES. It
+// A server offline for parkAfterDays leaves the table above and is only checked every parkedPollMinutes. It
 // comes back by itself if it answers; otherwise the user retries it, points it at a new address, or removes it.
 const parkedBox = document.getElementById("parked");
 const parkedRows = document.getElementById("parked-rows");

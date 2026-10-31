@@ -65,7 +65,7 @@
 
 <section>
   <div class="bar"><h2>Monitoring settings</h2></div>
-  <p class="muted">These start from the environment - a value you save here overrides it.</p>
+  <p class="muted">Saved in settings.json in the data folder - <b>Reset</b> returns a setting to its built-in default.</p>
   <form id="settings">
     <div id="settings-rows"><span class="muted">Loading…</span></div>
     <div class="inline"><button type="submit">Save</button><span id="settings-msg"></span></div>
@@ -377,8 +377,8 @@ $("user-add").addEventListener("submit", async (e) => {
 });
 
 // ---- Monitoring settings ----
-// The environment gives each default; a value saved here overrides it. Only the fields you changed are sent,
-// so the others keep following the environment.
+// Every value lives in settings.json; saving here writes it, Reset writes the built-in default back.
+// Only the fields you changed are sent, so the others keep their saved values.
 let settingsView = {};
 function renderSettings(settings) {
   settingsView = settings;
@@ -386,7 +386,7 @@ function renderSettings(settings) {
   body.replaceChildren();
   for (const [key, s] of Object.entries(settings)) {
     const input = h("input", { name: key, type: "number", value: s.value, min: s.min, max: s.max, step: s.integer ? 1 : "any", required: true });
-    const note = h("span", { className: "muted", textContent: s.overridden ? `Saved here. Default: ${s.default}` : `Default (environment): ${s.default}` });
+    const note = h("span", { className: "muted", textContent: s.overridden ? `Changed. Built-in default: ${s.default}` : "Built-in default" });
     const reset = h("button", { type: "button", textContent: "Reset", hidden: !s.overridden, title: "Go back to the default" });
     reset.onclick = async () => {
       const res = await api("/api/admin/settings", { method: "PUT", body: { [key]: null } });
