@@ -6,7 +6,7 @@ body = """
 - {{ commit.message | split(pat="\n") | first | trim }} {% if commit.extra.pr_number %}([#{{ commit.extra.pr_number }}](https://github.com/{{ commit.extra.repository }}/pull/{{ commit.extra.pr_number }})){% else %}([{{ commit.id | truncate(length=7, end="") }}](https://github.com/{{ commit.extra.repository }}/commit/{{ commit.id }})){% endif %}
 {% endfor %}
 {% if previous.version and version %}\
-**Full changelog:** https://github.com/nwish/dayz-watcher/compare/{{ previous.version }}...{{ version }}
+**Full changelog:** https://github.com/nwish/dayz-watch/compare/{{ previous.version }}...{{ version }}
 {% endif %}
 """
 trim = true
