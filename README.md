@@ -57,6 +57,8 @@ Set these in the compose file's `environment:` block (see [compose.yaml.example]
 
 To serve on another host port, change the left side of the `8080:8080` mapping (the container always listens on 8080).
 
+Upgrading from a release that used `.env`: on the first start after the upgrade, the old monitoring variables (`POLL_SECONDS`, `OFFLINE_AFTER`, `RECHECK_SECONDS`, `REBOOT_WINDOW_MINUTES`, `PARK_AFTER_DAYS`, `PARKED_POLL_MINUTES`) are migrated once into `settings.json` and listed in the log; after that they are ignored. `DISCORD_WEBHOOK_URL` has no replacement - set a webhook on each server that should post.
+
 The monitoring settings (`pollSeconds`, `offlineAfter`, `recheckSeconds`, `rebootWindowMinutes`, `parkAfterDays`, `parkedPollMinutes`) are **not** environment variables. They live in `settings.json` in the data volume, which is created with every setting at its default on first start, so you can also edit that file by hand (a restart picks the edit up). An admin can change them on the **Admin** page under *Monitoring settings*; a saved value applies to every server at once without a restart. **Reset** puts a setting back to its built-in default. The panel accepts `pollSeconds` 5–3600, `offlineAfter` 1–100 (whole number), `recheckSeconds` 2–3600, `rebootWindowMinutes` 0–1440, `parkAfterDays` 0–365 and `parkedPollMinutes` 1–1440.
 
 Data lives in the `dayz-watch-data` volume: `servers.json` (per-server webhook URLs in plain text, never returned by the API), `users.json` (scrypt password hashes, mode 600), `settings.json` (the monitoring settings, seeded with defaults on first start) and `stats.db` (the 90-day player history, SQLite; the `-wal`/`-shm` files are normal).

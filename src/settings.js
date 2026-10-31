@@ -1,6 +1,7 @@
 // Monitoring settings an admin can change at runtime. They live in data/settings.json, which is created with
 // every setting at its built-in default on first start, so it can also be edited by hand (a restart picks the
-// edit up). The admin panel's Reset puts a setting back to its built-in default.
+// edit up). The admin panel's Reset puts a setting back to its built-in default. The pre-settings.json
+// environment variables (POLL_SECONDS and friends) are read exactly once, when seeding a missing file.
 import fs from "node:fs";
 import path from "node:path";
 
@@ -9,16 +10,36 @@ export class SettingsError extends Error {
 }
 
 // fallback: the built-in default. min/max: the range accepted from the panel and from the file.
+// env: the legacy .env variable, read only once when seeding a missing settings.json (see seedFromEnv).
 export const FIELDS = {
-  pollSeconds: { fallback: 30, min: 5, max: 3600, label: "Poll interval (seconds)" },
-  offlineAfter: { fallback: 3, min: 1, max: 100, integer: true, label: "Failed polls before offline" },
-  recheckSeconds: { fallback: 5, min: 2, max: 3600, label: "Recheck interval while not answering (seconds)" },
-  rebootWindowMinutes: { fallback: 10, min: 0, max: 1440, label: "Restart window (minutes)" },
-  parkAfterDays: { fallback: 7, min: 0, max: 365, label: "Park a server after (days offline, 0 = never)" },
-  parkedPollMinutes: { fallback: 10, min: 1, max: 1440, label: "Check a parked server every (minutes)" },
+  pollSeconds: { env: "POLL_SECONDS", fallback: 30, min: 5, max: 3600, label: "Poll interval (seconds)" },
+  offlineAfter: { env: "OFFLINE_AFTER", fallback: 3, min: 1, max: 100, integer: true, label: "Failed polls before offline" },
+  recheckSeconds: { env: "RECHECK_SECONDS", fallback: 5, min: 2, max: 3600, label: "Recheck interval while not answering (seconds)" },
+  rebootWindowMinutes: { env: "REBOOT_WINDOW_MINUTES", fallback: 10, min: 0, max: 1440, label: "Restart window (minutes)" },
+  parkAfterDays: { env: "PARK_AFTER_DAYS", fallback: 7, min: 0, max: 365, label: "Park a server after (days offline, 0 = never)" },
+  parkedPollMinutes: { env: "PARKED_POLL_MINUTES", fallback: 10, min: 1, max: 1440, label: "Check a parked server every (minutes)" },
 };
 
 const DEFAULTS = Object.fromEntries(Object.entries(FIELDS).map(([k, f]) => [k, f.fallback]));
+
+// One-time upgrade path: an install that still carries the old .env defaults gets them migrated into the
+// seeded file instead of silently dropping back to the built-in values. Junk falls back to the default;
+// out-of-range is clamped, as the old env handling did.
+function seedFromEnv(env) {
+  const seeded = { ...DEFAULTS };
+  const migrated = [];
+  for (const [k, f] of Object.entries(FIELDS)) {
+    const raw = env[f.env];
+    if (raw == null || raw === "") continue;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) continue;
+    const v = Math.min(f.max, Math.max(f.min, n));
+    seeded[k] = f.integer ? Math.floor(v) : v;
+    migrated.push(`${f.env}=${seeded[k]}`);
+  }
+  if (migrated.length) console.log(`settings.json not found: seeded from the environment (${migrated.join(", ")}) - those variables are now ignored; change settings on the Admin page or in settings.json`);
+  return seeded;
+}
 
 function validate(key, value) {
   const f = FIELDS[key];
@@ -29,12 +50,13 @@ function validate(key, value) {
 }
 
 export class Settings {
-  constructor(dataDir) {
+  constructor(dataDir, env = process.env) {
     this.file = path.join(dataDir, "settings.json");
     this.saved = { ...DEFAULTS }; // the file wins for anything it carries
     fs.mkdirSync(dataDir, { recursive: true });
     if (!fs.existsSync(this.file)) {
-      this.write(this.saved); // first start: the file shows every setting at its default
+      this.saved = seedFromEnv(env); // first start: the file shows every setting, migrated from .env if it set them
+      this.write(this.saved);
       return;
     }
     let loaded;

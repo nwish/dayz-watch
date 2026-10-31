@@ -12,7 +12,7 @@ const DEFAULTS = { pollSeconds: 30, offlineAfter: 3, recheckSeconds: 5, rebootWi
 test("first start seeds settings.json with every setting at its built-in default", () => {
   const dir = tmp();
   try {
-    const s = new Settings(dir);
+    const s = new Settings(dir, {});
     assert.deepEqual(values(s), DEFAULTS);
     assert.deepEqual(JSON.parse(fs.readFileSync(s.file, "utf8")), DEFAULTS);
     assert.deepEqual(Object.values(s.describe()).map((d) => d.overridden), [false, false, false, false, false, false]);
@@ -24,7 +24,7 @@ test("first start seeds settings.json with every setting at its built-in default
 test("saved values win and survive a restart; null goes back to the built-in default", () => {
   const dir = tmp();
   try {
-    const s = new Settings(dir);
+    const s = new Settings(dir, {});
     const after = s.update({ pollSeconds: 15, offlineAfter: 4 });
     assert.deepEqual([after.pollSeconds.value, after.pollSeconds.default, after.pollSeconds.overridden], [15, 30, true]);
 
@@ -42,10 +42,27 @@ test("saved values win and survive a restart; null goes back to the built-in def
   }
 });
 
+test("first start with the old .env defaults migrates them into settings.json, once", () => {
+  const dir = tmp();
+  const log = console.log;
+  const logs = [];
+  console.log = (m) => logs.push(String(m));
+  try {
+    const env = { POLL_SECONDS: "60", OFFLINE_AFTER: "2.9", RECHECK_SECONDS: "abc", PARK_AFTER_DAYS: "-5" };
+    const s = new Settings(dir, env);
+    assert.deepEqual(values(s), { pollSeconds: 60, offlineAfter: 2, recheckSeconds: 5, rebootWindowMinutes: 10, parkAfterDays: 0, parkedPollMinutes: 10 }); // junk keeps the default, out-of-range clamps
+    assert.equal(logs.filter((m) => m.includes("seeded from the environment")).length, 1);
+    assert.equal(new Settings(dir, { POLL_SECONDS: "999" }).values.pollSeconds, 60); // later starts ignore the environment: the file is the truth
+  } finally {
+    console.log = log;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a hand edit to settings.json is picked up on restart; a missing key falls back to the default", () => {
   const dir = tmp();
   try {
-    new Settings(dir);
+    new Settings(dir, {});
     fs.writeFileSync(path.join(dir, "settings.json"), JSON.stringify({ pollSeconds: 90 }));
     const s = new Settings(dir);
     assert.equal(s.values.pollSeconds, 90);
@@ -58,7 +75,7 @@ test("a hand edit to settings.json is picked up on restart; a missing key falls 
 test("update rejects bad input and changes nothing, in memory or on disk", () => {
   const dir = tmp();
   try {
-    const s = new Settings(dir);
+    const s = new Settings(dir, {});
     s.update({ offlineAfter: 5 });
     const file = fs.readFileSync(s.file, "utf8");
     for (const bad of [{ pollSeconds: 20, offlineAfter: 0 }, { pollSeconds: 4 }, { pollSeconds: 3601 }, { offlineAfter: 2.5 }, { pollSeconds: "20" }, { pollSeconds: NaN }, { rebootWindowMinutes: -1 }, { nope: 1 }, {}, [], null]) {
