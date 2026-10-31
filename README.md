@@ -23,13 +23,11 @@ The server list sorts by any column: click a header (first click ascending, Play
 
 ## Run with Docker Compose
 
-Currently on `1.0.0-rc1` only - there is no `latest` tag yet.
-
 **compose.yaml**
-```sh
+```yaml
 services:
   dayz-watch:
-    image: ghcr.io/nwish/dayz-watch:1.0.0-rc1
+    image: ghcr.io/nwish/dayz-watch:1.0.0
     restart: unless-stopped
     ports:
       - "${HOST_PORT:-8080}:8080"
