@@ -31,6 +31,15 @@
   <p>This account still uses the random password printed in the server log. Choose a new password below: the rest of the app stays locked until you do.</p>
 </section>
 
+<section id="name-section">
+  <h2>Change username</h2>
+  <form id="name-form" class="inline">
+    <input name="newUsername" autocomplete="username" autocapitalize="none" spellcheck="false" minlength="3" maxlength="32" placeholder="New username (3-32 characters: a-z 0-9 . _ -)" required>
+    <button type="submit">Change username</button>
+    <span id="name-msg"></span>
+  </form>
+</section>
+
 <section>
   <h2>Change password</h2>
   <form id="pw-form" class="inline">
@@ -67,6 +76,18 @@ function setMsg(id, text, ok) {
 
 let mustChangePassword = false; // set from /api/me: a temporary password only unlocks this page
 
+$("name-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const { ok, data } = await api("/api/me/username", { method: "POST", body: { username: f.newUsername.value } });
+  setMsg("name-msg", ok ? `Username changed to ${data.username}. Sign in with it from now on; your current sessions keep working.` : data.error, ok);
+  if (ok) {
+    f.reset();
+    $("who").textContent = `${data.username} (${data.role})`;
+    $("pw-form").username.value = data.username;
+  }
+});
+
 $("pw-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const f = e.target;
@@ -87,7 +108,10 @@ $("pw-form").addEventListener("submit", async (e) => {
   $("who").textContent = `${me.username} (${me.role})`;
   $("pw-form").username.value = me.username; // lets password managers update the right entry
   mustChangePassword = me.mustChangePassword === true;
-  if (mustChangePassword) $("temp-notice").hidden = false;
+  if (mustChangePassword) {
+    $("temp-notice").hidden = false;
+    $("name-section").hidden = true; // the server refuses a rename until the temp password is replaced
+  }
 })();
 </script>
 </body>

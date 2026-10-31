@@ -236,6 +236,23 @@ test("change own password: needs current password, signs out other sessions, kee
   await loginAs("erin", "a fresh password");
 });
 
+test("change own username: sessions follow the rename, the old name stops working, collisions are refused", async () => {
+  const admin = await loginAs("admin", ADMIN_PW);
+  await admin.call("POST", "/api/users", { username: "carl", password: "carls long password" });
+  const carl = await loginAs("carl", "carls long password");
+  assert.equal((await carl.call("POST", "/api/me/username", { username: "Bad Name!" })).status, 400);
+  assert.equal((await carl.call("POST", "/api/me/username", { username: "admin" })).status, 409);
+  const renamed = await carl.call("POST", "/api/me/username", { username: "Charlie" });
+  assert.equal(renamed.status, 200);
+  assert.equal(renamed.json.username, "charlie");
+  assert.equal((await carl.call("GET", "/api/me")).json.username, "charlie"); // the session follows the rename
+  assert.equal((await client().call("POST", "/api/login", { username: "carl", password: "carls long password" })).status, 401);
+  const fresh = await loginAs("charlie", "carls long password");
+  assert.equal((await fresh.call("GET", "/api/me")).json.username, "charlie");
+  assert.ok((await admin.call("GET", "/api/users")).json.users.some((u) => u.username === "charlie"));
+  assert.equal((await admin.call("PATCH", "/api/users/charlie", { role: "admin" })).status, 200); // admin routes use the new name
+});
+
 test("logout invalidates the session server-side, not just the cookie", async () => {
   const c = await loginAs("admin", ADMIN_PW);
   const stolen = c.cookie;

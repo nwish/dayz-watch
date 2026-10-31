@@ -141,6 +141,20 @@ export class UserStore {
     this.#save();
   }
 
+  // Rename an account. The username is the key sessions and admin routes carry, so the caller must
+  // rename the sessions too. Returns the updated view.
+  setUsername(username, newUsername) {
+    const name = normalizeUsername(newUsername);
+    const user = this.#find(username);
+    if (!user) throw new AuthError("user not found", 404);
+    if (name !== username) {
+      if (this.#find(name)) throw new AuthError("username already exists", 409);
+      user.username = name;
+      this.#save();
+    }
+    return view(user);
+  }
+
   setRole(username, role) {
     validateRole(role);
     const user = this.#find(username);
@@ -233,6 +247,11 @@ export class SessionStore {
 
   destroy(token) {
     if (token) this.sessions.delete(SessionStore.#key(token));
+  }
+
+  // Keep live sessions working across a username change.
+  rename(username, newUsername) {
+    for (const s of this.sessions.values()) if (s.username === username) s.username = newUsername;
   }
 
   // Drop every session for a user, optionally keeping one (the caller's own).

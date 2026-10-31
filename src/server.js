@@ -296,6 +296,15 @@ async function api(req, res, url, session) {
     return reply(res, 200, { ok: true });
   }
 
+  if (method === "POST" && pathname === "/api/me/username") {
+    if (AUTH_DISABLED) throw new AuthError("authentication is disabled", 409);
+    const { username } = await readJson(req);
+    const updated = users.setUsername(me.username, username);
+    sessions.rename(me.username, updated.username); // this session and the user's others keep working
+    if (updated.username !== me.username) console.log(`${new Date().toISOString()} ${me.username} renamed their account to ${updated.username}`);
+    return reply(res, 200, updated);
+  }
+
   // ---- servers (any signed-in user) ----
   if (method === "GET" && pathname === "/api/servers") {
     const cfg = settings.values;

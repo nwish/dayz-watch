@@ -143,6 +143,24 @@ test("users: the last admin cannot be demoted or deleted", async () => {
   }
 });
 
+test("users: rename an account; names are validated and unique", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dw-auth-"));
+  try {
+    const u = new UserStore(dir);
+    await u.create({ username: "root", password: "a long password", role: "admin" });
+    await u.create({ username: "bob", password: "bobs long password" });
+    assert.equal(u.setUsername("bob", " Bobby.J ").username, "bobby.j");
+    assert.equal(u.get("bob"), undefined);
+    assert.ok(await u.verify("bobby.j", "bobs long password")); // the password rides along
+    assert.throws(() => u.setUsername("bobby.j", "root"), /already exists/);
+    assert.throws(() => u.setUsername("bobby.j", "x!"), /3-32/);
+    assert.throws(() => u.setUsername("ghost", "nobody"), /not found/);
+    assert.equal(u.setUsername("bobby.j", "BOBBY.J").username, "bobby.j"); // the same name: a no-op
+  } finally {
+    fs.rmSync(dir, { recursive: true });
+  }
+});
+
 test("bootstrap: creates the admin once, with a generated password", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dw-auth-"));
   try {
