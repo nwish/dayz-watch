@@ -27,7 +27,7 @@ The server list sorts by any column: click a header (first click ascending, Play
 ```yaml
 services:
   dayz-watch:
-    image: ghcr.io/nwish/dayz-watch:1.0.0
+    image: ghcr.io/nwish/dayz-watch:latest
     restart: unless-stopped
     ports:
       - "${HOST_PORT:-8080}:8080"
