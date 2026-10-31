@@ -13,13 +13,9 @@
 
 ![dayz-watch server list](docs/screenshot.png)
 
-A dependency-free web app that watches and polls basic stats on DayZ servers via the Steam A2S_INFO query (UDP).  Comes with a web UI to manage and view monitored servers.  
+A dependency-free web app that watches DayZ servers via the Steam A2S_INFO query (UDP): live player counts, restart-vs-outage detection, 90 days of history, and Discord alerts per server or a default — managed from a web UI. Clicking a server opens a full-screen overlay that sounds and flashes green or red as players join or leave.
 
-Click/tap on a server from the main list to open a live stats view with player count change alerts.  Supports per-server Discord webhooks (or a default from an environment variable) to post player count change alerts. The **Discord** button on a server's row opens a dialog to replace its webhook (paste a new URL; the saved one is never shown, and an empty box keeps it), remove it with **Remove webhook**, or switch the **Alerts on / muted** slider. Muted means nothing at all is posted for that server (player changes, offline, back online), via its own webhook or the default, and the URL stays saved. The button shows the state at a glance: green when the server has its own webhook and alerts are on, orange when alerts are muted, and plain when it has no webhook of its own.
-
-![dayz-watch live monitor: green and red alerts as players join and leave](docs/monitor.gif)
-
-The server list sorts by any column: click a header (first click ascending, Players descending; second click reverses; third restores the default order). On phones, where the header row is hidden, use the **Sort** control above the list. Servers with no value for the column (no answer yet, or offline for Players) always sort last, and the choice is remembered in the browser.
+![dayz-watch live monitor](docs/monitor.gif)
 
 ## Run with Docker Compose
 
@@ -43,118 +39,102 @@ volumes:
   dayz-watch-data:
 ```
 
-Then `docker compose up -d`
-
-Open `http://<host>:8080` and sign in. Servers and users are managed in the UI.
+Then `docker compose up -d` and open `http://<host>:8080`. Servers and users are managed in the UI.
 
 **.env**
-See [.env.example](.env.example) - copy to `.env` and edit to your liking.
+Copy [.env.example](.env.example) to `.env` and edit.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `ADMIN_USERNAME` | `admin` | First admin's username. Only used while no users exist. |
-| `ADMIN_PASSWORD` | generated | First admin's password. Only used while no users exist; if empty, a random one is printed once in the container log. |
-| `AUTH_DISABLED` | `false` | `true` bypasses login on a trusted network: every visitor is the built-in `local` admin and existing accounts are ignored. |
-| `ALLOW_PRIVATE_ADDRESSES` | `false` | Servers on loopback, LAN, link-local or other non-public IPv4 addresses are refused, on adding and on every poll. Set `true` only to monitor a server on your own network. |
-| `TRUST_PROXY` | `false` | `true` behind a reverse proxy: the client IP for rate limiting comes from the last `X-Forwarded-For` entry, and `X-Forwarded-Proto`/`-Host` are honored. Enable only if clients can reach the container *only* through that proxy, or they can spoof their IP. |
-| `COOKIE_SECURE` | `false` | Mark the session cookie `Secure`. Set `true` over HTTPS (implied by `TRUST_PROXY=true` with `X-Forwarded-Proto: https`). |
-| `DISCORD_WEBHOOK_URL` | unset | Default webhook for servers added without their own. With no webhook, servers are still monitored but nothing is posted. |
-| `POLL_SECONDS` | 30 | Poll interval (minimum 5). |
+| `ADMIN_USERNAME` | `admin` | First admin's username; used only while no users exist. |
+| `ADMIN_PASSWORD` | generated | First admin's password; if empty, a random one is logged once. |
+| `AUTH_DISABLED` | `false` | Skip login (see *Accounts and login*). |
+| `ALLOW_PRIVATE_ADDRESSES` | `false` | Allow loopback/LAN/other non-public IPv4 servers, on add and every poll. |
+| `TRUST_PROXY` | `false` | `true` behind a reverse proxy: the client IP comes from the last `X-Forwarded-For` entry and `X-Forwarded-Proto`/`-Host` are honored. Enable only if the proxy is the only way in, or clients can spoof their IP. |
+| `COOKIE_SECURE` | `false` | Mark the session cookie `Secure`; set over HTTPS (implied by `TRUST_PROXY` with https). |
+| `DISCORD_WEBHOOK_URL` | unset | Default webhook for servers without their own; with none, nothing is posted. |
+| `POLL_SECONDS` | 30 | Poll interval (min 5). |
 | `OFFLINE_AFTER` | 3 | Consecutive failed polls before a server counts as offline. |
-| `RECHECK_SECONDS` | 5 | While a server isn't answering it is polled this often instead (minimum 2). Set it to `POLL_SECONDS` or more to turn rechecks off. |
-| `REBOOT_WINDOW_MINUTES` | 10 | A server down for less than this is a normal restart, not an outage: no Discord message, shown as "restarting?". `0` treats every offline server as an outage. |
-| `PARK_AFTER_DAYS` | 7 | A server offline this many days is **parked**: it leaves the main list for *Offline for a long time* and is checked far less often (see below). `0` never parks. |
-| `PARKED_POLL_MINUTES` | 10 | How often a parked server is checked. |
-| `DIRECTORY_URL` | DZSA Launcher list | JSON list of public servers for the add-server search. Override only to point at a compatible mirror. |
+| `RECHECK_SECONDS` | 5 | Faster polling while a server isn't answering (min 2); set ≥ `POLL_SECONDS` to disable rechecks. |
+| `REBOOT_WINDOW_MINUTES` | 10 | Down less than this is a restart, not an outage. `0` = always an outage. |
+| `PARK_AFTER_DAYS` | 7 | Offline this long, a server is **parked** (see *Behavior*). `0` never parks. |
+| `PARKED_POLL_MINUTES` | 10 | Check interval for parked servers. |
+| `DIRECTORY_URL` | DZSA Launcher list | JSON list for the add-server search; override only for a compatible mirror. |
 | `HOST_PORT` | 8080 | Host port published by compose (the container always listens on 8080). |
 
-The six monitoring variables (`POLL_SECONDS`, `OFFLINE_AFTER`, `RECHECK_SECONDS`, `REBOOT_WINDOW_MINUTES`, `PARK_AFTER_DAYS`, `PARKED_POLL_MINUTES`) are only the **defaults**. An admin can change them on the **Admin** page under *Monitoring settings*; a saved value overrides the environment, applies to every server at once without a restart, and is kept in `settings.json`. Only the values you changed are saved, so the rest keep following `.env`. **Reset** drops an override and the `.env` value applies again. The panel accepts `POLL_SECONDS` 5–3600, `OFFLINE_AFTER` 1–100 (whole number), `RECHECK_SECONDS` 2–3600, `REBOOT_WINDOW_MINUTES` 0–1440, `PARK_AFTER_DAYS` 0–365 and `PARKED_POLL_MINUTES` 1–1440.
+The six monitoring variables are defaults only: *Monitoring settings* on the **Admin** page overrides them per value (no restart, stored in `settings.json`; **Reset** returns to `.env`).
 
-Data lives in the `dayz-watch-data` volume: `servers.json` (per-server webhook URLs in plain text, never returned by the API), `users.json` (scrypt password hashes, mode 600), `settings.json` (the admin panel's monitoring overrides) and `stats.db` (the 90-day player history, SQLite; the `-wal`/`-shm` files are normal).
+The `dayz-watch-data` volume holds `servers.json` (webhook URLs in plain text, never returned by the API), `users.json` (scrypt hashes, mode 600), `settings.json` (monitoring overrides) and `stats.db` (90-day player history, SQLite; `-wal`/`-shm` files are normal).
 
-The container needs outbound UDP to the query ports and outbound HTTPS to Discord. Put TLS in front of it (reverse proxy) beyond a trusted LAN: the login form sends the password in the clear over plain HTTP.
+The container needs outbound UDP to the query ports and HTTPS to Discord. Beyond a trusted LAN, put TLS in front: the login form sends the password in the clear over plain HTTP.
 
 ## Accounts and login
 
-- `AUTH_DISABLED=true` skips login: every request is the `local` admin, so every API, including user management, is open to anyone who can reach the app. Use it only on a trusted LAN or behind separate access control.
-- Sessions are server-side, in an `HttpOnly`, `SameSite=Strict` cookie. They expire after 12 h idle or 7 days total, and are lost on restart.
+- `AUTH_DISABLED=true` skips login: every API, including user management, is open to anyone who can reach the app. Trusted LAN or separate access control only.
+- Sessions are server-side in an `HttpOnly`, `SameSite=Strict` cookie: 12 h idle or 7 days total, lost on restart.
 - **Roles:** `admin` can do everything including the admin page; `user` can view and manage servers but not users.
-- **Admin page (`/admin`, admins only):** add users, make/unmake admin, reset passwords, delete. Resetting a password or deleting a user signs them out. You can't delete yourself or change your own role, and the last admin can't be demoted or deleted. It also shows uptime and memory, watcher query RTT (A2S response time from the app host, not player latency), history database size and counts, per-server history coverage (*deleted server* = history left by a removed server) and data directory file sizes, refreshed every 30 s.
-- **Server list panel (admin page):** shows when the add-server search's list was built by its source (the DZSA list's `created` time), when this app last downloaded it, server/host/map counts, players online, passworded servers and the most common maps. **Refresh list** downloads it again immediately; otherwise it is fetched on the first search and then at most every 10 minutes. A failed refresh keeps the old list and is shown on the panel.
-- **Account page (`/account`):** any user can change their own password (needs the current one; their other sessions are signed out).
-- Usernames are 3-32 characters of `a-z 0-9 . _ -`; passwords 10-128.
-- **Rate limiting:** 10 failed logins per username or 20 per client IP within 15 minutes locks that username/IP for 15 minutes (HTTP 429 with `Retry-After`). Counters are in memory and reset on restart. Anyone can therefore lock out a known username for 15 minutes; other accounts and valid sessions are unaffected.
+- **Admin page (`/admin`):** add users, make/unmake admin, reset passwords, delete (resets and deletes sign the user out; you can't touch your own account, and the last admin can't be demoted or deleted). Also shows uptime, memory, watcher RTT, history DB size and coverage, and file sizes, refreshed every 30 s.
+- **Server list panel (admin page):** the search list's age, counts, players online and common maps. **Refresh list** refetches on demand; otherwise it's fetched on first search and at most every 10 minutes.
+- **Account page (`/account`):** change your own password (needs the current one; your other sessions are signed out).
+- Usernames are 3–32 characters of `a-z 0-9 . _ -`; passwords 10–128.
+- **Rate limiting:** 10 failed logins per username or 20 per client IP within 15 minutes locks it for 15 minutes (HTTP 429, `Retry-After`). Counters are in memory; a known username can be locked out for 15 minutes.
 - State-changing requests must be JSON and, if they carry an `Origin` header, same-origin.
 
 ## Behavior
 
-- **Status bar:** above the server list: servers online, checking, restarting? or offline; the polling cadence; the last check; and the offline and restart rules. Its left edge is green, amber (checking/restarting) or red (offline). Click a server's status pill for the detail, which says `no webhook, not notifying` or `alerts muted` when nothing will be posted for it.
-- The first reading after start or add is a silent baseline.
-- A post is sent only when the count differs from the previous successful reading, e.g. `**Name** (map): players 5 → **6**/60 (+1)`.
+- The list sorts by any column: click a header (ascending, Players descending; again to reverse, a third time to reset) or use the **Sort** control on phones. Empty values sort last; the choice is remembered in the browser.
+- **Status bar** above the list: counts by state, the polling cadence, the last check, and the offline/restart rules; left edge green, amber or red. A status pill's detail says `no webhook, not notifying` or `alerts muted` when nothing posts for it.
+- The row's **Discord** button replaces a server's webhook (the saved URL is never shown; an empty box keeps it), removes it, or mutes all alerts for it; the button is green (own webhook, alerts on), orange (muted) or plain (no own webhook).
+- The first reading after start or add is a silent baseline; posts go out only when the count differs from the previous successful reading, e.g. `**Name** (map): players 5 → **6**/60 (+1)`.
 - A failed query (timeout, DNS) is shown in the UI and isn't a change.
-- Status pills: **Online**, **Checking**, **Restarting**, **Offline** or **Alert error**. Hover or tap one for the full message.
+- Status pills: **Online**, **Checking**, **Restarting**, **Offline**, **Alert error** — hover/tap for the full message.
 
-### Offline servers, restars & outages
+### Offline servers, restarts & outages
 
-A server is **offline** after `OFFLINE_AFTER` failed polls in a row; one dropped packet is a blip and shows as `Query failing (1/3)`. After the first failure the server is rechecked every `RECHECK_SECONDS`, so a restart under two minutes is still noticed and timed to within seconds. Rechecks stop once it has been dark longer than the restart window. What happens next depends on how long it stays dark (`REBOOT_WINDOW_MINUTES`):
+After `OFFLINE_AFTER` failed polls in a row a server is **offline**; one dropped packet is a blip (`Query failing (1/3)`). It is rechecked every `RECHECK_SECONDS` until dark longer than the restart window; then `REBOOT_WINDOW_MINUTES` decides:
 
-- **Shorter than the window: a restart.** The list and overlay say `restarting?` instead of a stale count, and nothing is posted. When it answers again the first reading is a fresh baseline, so no `players 20 → 0` post either.
-- **Still dark at the end of the window: an outage.** The display changes to `offline` and, with a webhook, one message is posted: `**Name** (host:port) is **offline**: no answer for 10m (query timeout)`. It isn't repeated.
+- **Shorter than the window: a restart.** Shown as `restarting?`, nothing posted; the return reading is a fresh baseline, so no `players 20 → 0` post either.
+- **Still dark at the window's end: an outage.** The display becomes `offline` and one message is posted: `**Name** (host:port) is **offline**: no answer for 10m (query timeout)`. It isn't repeated.
 - **Back after an outage:** one message, `**Name** (map) is **back online** after 12m: 5/60 players`, counted from the first failed poll.
-- A server that has never answered since the app started (a mistyped host or port) shows offline but is **not** announced, so a typo can't ping your channel. An outage already underway when the app restarts isn't announced again.
-- The overlay dims the count and mutes alerts while a server is dark.
-- **Parked after `PARK_AFTER_DAYS` offline (default 7).** A server that has been dark that long moves from the main table to its own *Offline for a long time* list, so a dead or moved server stops cluttering the page and the status bar. It is checked only every `PARKED_POLL_MINUTES` (default 10), keeps its history and webhook, and comes back to the main table by itself the moment it answers (with the usual back-online message). With a webhook, one message says it was parked, but only if its offline message had been sent. Per parked server you can **Retry now**, **Change address** (same server, same history; the new address must answer as a DayZ server) or **Remove**. The app does not try to find a moved server itself: server names are not unique and a server's Steam ID can change on every restart, so a guess could attach someone else's server to your history.
-- The offline clock is saved in `servers.json` (`offlineSince`, plus the last name seen), so restarting or redeploying the app doesn't restart the count toward parking. A server that was already offline comes back up as offline, and its eventual return is announced.
+- A server that has never answered since the app started (a mistyped host) shows offline but is **not** announced; an outage already underway across an app restart isn't announced again.
+- **Parked after `PARK_AFTER_DAYS` offline:** the server moves to an *Offline for a long time* list, is checked only every `PARKED_POLL_MINUTES`, and keeps its history and webhook; it returns to the main table the moment it answers. One webhook message announces parking, but only if its offline message was sent. Per parked server: **Retry now**, **Change address** (same server and history; the new address must answer as a DayZ server) or **Remove**. The app never relocates a moved server: names aren't unique and Steam IDs change on restart, so a guess could attach the wrong server.
+- The offline clock (`offlineSince`, last name seen) is saved in `servers.json`, so an app restart doesn't reset the count toward parking.
 
 ## Adding servers to monitor
 
-*+ Add server* opens a form with a search box. Type part of a name, a number (e.g. `2305`), a map or an IP (`ip` or `ip:port`) and pick a result to fill in host and query port. All words must match; name-prefix matches rank first, then busier servers. Typing host and port by hand still works.
+*+ Add server* opens a search: type part of a name, a number (e.g. `2305`), a map or an `ip[:port]` and pick a result to fill host and query port. All words must match; name-prefix matches rank first, then busier servers. Manual entry works too.
 
-Either way, a server is queried once before it is saved: it must answer and identify as DayZ, or the add is refused (usually a wrong host, or the game port instead of the query port). A server that is down at that moment can't be added.
+Either way it's queried once before saving: it must answer and identify as DayZ, or the add is refused (wrong host, game port instead of query port, or down right now).
 
-The list comes from the DZSA Launcher's public endpoint (`https://dayzsalauncher.com/api/v2/launcher/servers/dayz`, ~10k servers, no API key). The container downloads it (~13 MB) on the first search, keeps a trimmed copy in memory and refreshes it every 10 minutes; if a refresh fails it keeps the old list, and if the first download fails manual entry still works. It's a community endpoint with no SLA.
+The search list comes from the DZSA Launcher's public endpoint (`https://dayzsalauncher.com/api/v2/launcher/servers/dayz`, ~10k servers, no API key). Downloaded (~13 MB) on first search, kept trimmed in memory, refreshed every 10 minutes; a failed refresh keeps the old list, and manual entry still works if the first download fails. Community endpoint, no SLA.
 
 ## Statistics collection & view
 
 ![dayz-watch stats page](docs/stats.png)
 
-Every poll of every server is recorded and 90 days are kept (pruned hourly). A row's **Stats** button opens `/servers/<id>`, showing the last 12 hours by default (change it with the buttons or `?range=1h|12h|24h|7d|30d|90d`):
+Every poll is recorded; 90 days are kept (pruned hourly). A row's **Stats** button opens `/servers/<id>` (last 12 h by default; buttons or `?range=1h|12h|24h|7d|30d|90d`):
 
 - **Summary cards:** current count (or *Restarting?* / *Offline*), average, peak (and when), lowest, share of polls answered, outage and restart counts, busiest weekday and hour.
-- **Players over time:** average line with the min–max band, in 5 min steps (1 h, 12 h, 24 h), 30 min (7 days), 2 h (30 days) or 6 h (90 days). Dark periods are shaded **amber for a restart and red for an outage**. Hover for exact values.
+- **Players over time:** average line with min–max band, in steps of 5 min (≤24 h), 30 min (7 d), 2 h (30 d), 6 h (90 d). Dark periods shade **amber for restarts, red for outages**; hover for exact values.
 - **Daily trend** and **Busiest times** (a weekday × hour heatmap of average players): 7 days and up.
-- **Outages** and **Restarts:** a downtime shorter than `REBOOT_WINDOW_MINUTES` is a restart, a longer one an outage. A short downtime that ends with players already online is neither (a restarted server comes back empty, so only the watcher lost contact): it is shaded gray as *lost contact* and left out of the lists and counts. Restarts also show how many there were, how long they typically take and the hours they usually begin, so a 04:00 / 10:00 / 16:00 / 22:00 schedule shows up.
+- **Outages and restarts:** downtime shorter than `REBOOT_WINDOW_MINUTES` is a restart, longer an outage. A short downtime that ends with players already online is neither: shaded gray as *lost contact*, not counted. Restarts also show count, typical duration and start hours, so a 04:00/10:00/16:00/22:00 schedule shows up.
 
 Notes:
 
-- Polls are folded into 5-minute buckets: about 26k small rows per server over 90 days whatever `POLL_SECONDS` is. Deleting a server deletes its history.
-- Days and the heatmap use the browser's timezone with one fixed UTC offset, so around a daylight-saving change the hours shift by one.
-- "Answered polls" counts only polls made while the container was running; time it was down is a gap, not downtime.
-- **Downtime** runs from the first failed poll to the first answered one and is recorded only once the server is declared offline, so blips aren't listed. Restart or outage is decided when the page is read, so changing `REBOOT_WINDOW_MINUTES` re-sorts the history. A downtime still open when the app restarts ends at the last moment it was watched.
+- Polls fold into 5-minute buckets: ~26k small rows per server over 90 days whatever `POLL_SECONDS` is. Deleting a server deletes its history.
+- Days and the heatmap use the browser's timezone; hours shift by one across DST.
+- "Answered polls" counts only polls made while the container ran; its own downtime is a gap.
+- **Downtime** runs from the first failed poll to the first answered one, recorded only once the server is declared offline (blips aren't listed). Restart-vs-outage is decided at read time, so changing `REBOOT_WINDOW_MINUTES` re-sorts history.
 - History starts when the server is added (no backfill).
-- The database uses Node's built-in `node:sqlite`, still labeled experimental in Node 22; the start command silences the warning.
-- `stats.db` carries a schema version and is upgraded automatically on start. A database written by a newer release is refused rather than damaged, so upgrade the app instead of downgrading it.
+- `stats.db` uses Node's built-in `node:sqlite`, is schema-versioned and upgraded on start; a newer-version database is refused rather than damaged — upgrade the app instead of downgrading.
 
 ## Server overlay
 
-Click a server row for a large overlay with the live player count and basic info (address, game port, map, version, platform, in-game time, BattlEye, third person, password). While it is open, a change in player count plays a three-beat alert (rising for joins, falling for leaves), flashes the window green or red and shows `+N joined` / `−N left`. The `Sound` button mutes it; Esc, ×, or a click outside closes it. Browsers allow audio only after a user gesture, so sound is enabled by the click that opens the overlay.
+Click a server row for a large overlay: live player count and basic info (address, game port, map, version, platform, in-game time, BattlEye, third person, password). While open, a count change plays a three-beat alert (rising for joins, falling for leaves), flashes green or red and shows `+N joined` / `−N left`. `Sound` mutes; Esc, × or a click outside closes. Audio needs a user gesture, so the click that opens the overlay enables sound.
 
-While the overlay is open it also asks the browser to keep the screen on (Screen Wake Lock API: iOS/iPadOS 16.4+, Chrome on Android, desktop Chrome/Safari/Firefox 126+). The `Keep awake` button turns that off and on; it defaults to on each time the page loads. The browser only allows a wake lock on HTTPS or `localhost`, so over plain HTTP on a LAN address the button is hidden and nothing is requested. The lock is released when the overlay closes, and requested again when you switch back to the tab after leaving it.
+The overlay also holds a Screen Wake Lock; `Keep awake` toggles it, on by default. Wake locks need HTTPS or `localhost`, so the button is hidden over plain HTTP.
 
-The overlay is themed by the server's map (colors, sky gradient, inline SVG landscape):
-
-| Map (A2S name) | Theme |
-|---|---|
-| `nasdara`, `takistan`, `takistanplus` | Desert |
-| `enoch` (Livonia) | Forest |
-| `chernarusplus` (and any `chernarus*`) | Temperate |
-| `namalsk` | Arctic |
-| `sakhal` | Frozen island (aurora) |
-| `deerisle` | Coastal |
-| `esseker` | Harvest |
-| anything else | Default |
-
-Every theme has a **day** and a **night** variant, chosen from the server's in-game clock (the `HH:MM` DayZ puts in the A2S keywords): day is 06:00–17:59, night 18:00–05:59. The card switches live when the clock crosses either time. A server with no in-game time gets day.
+The overlay is themed by the server's map: desert (`nasdara`, `takistan`, `takistanplus`), forest (`enoch`), temperate (any `chernarus*`), arctic (`namalsk`), frozen island with aurora (`sakhal`), coastal (`deerisle`), harvest (`esseker`); anything else gets the default theme. Each theme has **day** (06:00–17:59) and **night** (18:00–05:59) variants, chosen live from the server's in-game clock (the `HH:MM` in the A2S keywords); no clock gets day.
 
 ## License
 
