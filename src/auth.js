@@ -168,11 +168,12 @@ export class UserStore {
   }
 }
 
-// On first start with no users, create the initial admin. Returns the generated password if one had to be made up.
-export async function bootstrapAdmin(users, { username = "admin", password } = {}) {
+// On first start with no users, create the initial admin with a random password, printed once in the log.
+// Returns the generated password, or null when users already existed.
+export async function bootstrapAdmin(users) {
   if (users.count() > 0) return null;
-  const generated = password ? null : crypto.randomBytes(15).toString("base64url");
-  await users.create({ username: username || "admin", password: password || generated, role: "admin" });
+  const generated = crypto.randomBytes(15).toString("base64url");
+  await users.create({ username: "admin", password: generated, role: "admin" });
   return generated;
 }
 

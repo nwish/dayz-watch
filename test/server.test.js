@@ -8,6 +8,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import dgram from "node:dgram";
 import { fakeA2S } from "./fake-a2s.js";
+import { hashPassword } from "../src/auth.js";
 
 const ADMIN_PW = "correct-horse-battery";
 let proc;
@@ -28,10 +29,15 @@ before(async () => {
   dayz = await fakeA2S(() => 3);
   dayzPort = dayz.address().port;
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "dw-srv-"));
+  // Seed the admin user: the server itself only generates a random password on a truly empty data dir.
+  fs.writeFileSync(
+    path.join(dataDir, "users.json"),
+    JSON.stringify({ users: [{ username: "admin", role: "admin", passwordHash: await hashPassword(ADMIN_PW), createdAt: new Date().toISOString(), lastLoginAt: null }] }),
+  );
   const port = await freePort();
   base = `http://127.0.0.1:${port}`;
   proc = spawn("node", ["src/server.js"], {
-    env: { ...process.env, PORT: String(port), DATA_DIR: dataDir, ADMIN_PASSWORD: ADMIN_PW, ALLOW_PRIVATE_ADDRESSES: "true" },
+    env: { ...process.env, PORT: String(port), DATA_DIR: dataDir, ALLOW_PRIVATE_ADDRESSES: "true" },
     stdio: ["ignore", "pipe", "inherit"],
   });
   await new Promise((resolve, reject) => {

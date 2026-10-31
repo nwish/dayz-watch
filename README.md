@@ -45,12 +45,10 @@ Then `docker compose up -d`
 Open `http://<host>:8080` and sign in. Servers and users are managed in the UI.
 
 **Environment**
-Set these in the compose file's `environment:` block (see [compose.yaml.example](compose.yaml.example) for the commented version). There is no `.env` file. If your compose file lives in a repository, don't commit `ADMIN_PASSWORD` - leave the password empty (a random one is printed once in the log).
+Set these in the compose file's `environment:` block (see [compose.yaml.example](compose.yaml.example) for the commented version). There is no `.env` file, and no secrets belong in compose: the first admin's password is generated on first start (see *Accounts and login*).
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `ADMIN_USERNAME` | `admin` | First admin's username. Only used while no users exist. |
-| `ADMIN_PASSWORD` | generated | First admin's password. Only used while no users exist; if empty, a random one is printed once in the container log. |
 | `AUTH_DISABLED` | `false` | `true` bypasses login on a trusted network: every visitor is the built-in `local` admin and existing accounts are ignored. |
 | `ALLOW_PRIVATE_ADDRESSES` | `false` | Servers on loopback, LAN, link-local or other non-public IPv4 addresses are refused, on adding and on every poll. Set `true` only to monitor a server on your own network. |
 | `TRUST_PROXY` | `false` | `true` behind a reverse proxy: the client IP for rate limiting comes from the last `X-Forwarded-For` entry, and `X-Forwarded-Proto`/`-Host` are honored. Enable only if clients can reach the container *only* through that proxy, or they can spoof their IP. |
@@ -67,6 +65,7 @@ The container needs outbound UDP to the query ports and outbound HTTPS to Discor
 
 ## Accounts and login
 
+- **First admin:** on a first start with no users, an `admin` account is created with a random password printed once in the container log. Sign in with it and change the password on the Account page.
 - `AUTH_DISABLED=true` skips login: every request is the `local` admin, so every API, including user management, is open to anyone who can reach the app. Use it only on a trusted LAN or behind separate access control.
 - Sessions are server-side, in an `HttpOnly`, `SameSite=Strict` cookie. They expire after 12 h idle or 7 days total, and are lost on restart.
 - **Roles:** `admin` can do everything including the admin page; `user` can view and manage servers but not users.

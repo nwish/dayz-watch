@@ -7,10 +7,6 @@ services:
     ports:
       - 8080:8080 # the container always listens on 8080; change the left side for another host port
     environment:
-      # First admin account, used only while no users exist; manage users in the web UI afterwards.
-      # Leave ADMIN_PASSWORD empty to have a random one printed once in the container log.
-      ADMIN_USERNAME: admin
-      ADMIN_PASSWORD: ""
       # true bypasses login on a trusted LAN or behind separate access control: every visitor is the local admin.
       AUTH_DISABLED: "false"
       # true allows monitoring servers on loopback/LAN addresses; they are refused otherwise.

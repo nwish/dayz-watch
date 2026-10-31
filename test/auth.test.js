@@ -143,24 +143,19 @@ test("users: the last admin cannot be demoted or deleted", async () => {
   }
 });
 
-test("bootstrap: creates the admin once; generates a password only when none given", async () => {
+test("bootstrap: creates the admin once, with a generated password", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dw-auth-"));
   try {
     const u = new UserStore(dir);
-    const generated = await bootstrapAdmin(u, { username: "boss" });
+    const generated = await bootstrapAdmin(u);
     assert.ok(generated && generated.length >= 15);
-    assert.equal((await u.verify("boss", generated)).role, "admin");
-    assert.equal(await bootstrapAdmin(u, { username: "other", password: "irrelevant password" }), null);
+    assert.equal((await u.verify("admin", generated)).role, "admin");
+    assert.equal(await bootstrapAdmin(u), null); // users exist: nothing happens again
     assert.equal(u.count(), 1);
 
-    const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), "dw-auth-"));
-    try {
-      const u2 = new UserStore(dir2);
-      assert.equal(await bootstrapAdmin(u2, { password: "supplied password!" }), null);
-      assert.ok(await u2.verify("admin", "supplied password!"));
-    } finally {
-      fs.rmSync(dir2, { recursive: true });
-    }
+    const reloaded = new UserStore(dir); // a restart doesn't re-bootstrap either
+    assert.equal(await bootstrapAdmin(reloaded), null);
+    assert.equal(reloaded.count(), 1);
   } finally {
     fs.rmSync(dir, { recursive: true });
   }

@@ -64,6 +64,10 @@ test("password hashing: a flood is capped and queued, extra requests get 503, an
 
 test("server: private addresses can't be added unless ALLOW_PRIVATE_ADDRESSES is set", async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "dw-guard-"));
+  fs.writeFileSync(
+    path.join(dataDir, "users.json"),
+    JSON.stringify({ users: [{ username: "admin", role: "admin", passwordHash: await hashPassword("correct-horse-battery"), createdAt: new Date().toISOString(), lastLoginAt: null }] }),
+  );
   const port = await new Promise((resolve) => {
     const s = net.createServer().listen(0, "127.0.0.1", () => {
       const { port } = s.address();
@@ -71,7 +75,7 @@ test("server: private addresses can't be added unless ALLOW_PRIVATE_ADDRESSES is
     });
   });
   const proc = spawn("node", ["src/server.js"], {
-    env: { ...process.env, PORT: String(port), DATA_DIR: dataDir, ADMIN_PASSWORD: "correct-horse-battery", ALLOW_PRIVATE_ADDRESSES: "" },
+    env: { ...process.env, PORT: String(port), DATA_DIR: dataDir, ALLOW_PRIVATE_ADDRESSES: "" },
     stdio: ["ignore", "pipe", "inherit"],
   });
   try {

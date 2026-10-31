@@ -61,16 +61,12 @@ setInterval(() => {
 if (AUTH_DISABLED) {
   console.warn("Authentication is disabled (AUTH_DISABLED=true); do not expose dayz-watch to untrusted networks.");
 } else {
-  const generated = await bootstrapAdmin(users, {
-    username: process.env.ADMIN_USERNAME,
-    password: process.env.ADMIN_PASSWORD,
-  });
+  const generated = await bootstrapAdmin(users);
   if (generated) {
     console.log("================================================================");
-    console.log(" No users existed: created admin account.");
-    console.log(`   username: ${process.env.ADMIN_USERNAME || "admin"}`);
+    console.log(" No users existed: created admin account 'admin'.");
     console.log(`   password: ${generated}`);
-    console.log(" This is shown once. Change it after logging in.");
+    console.log(" This is shown once. Sign in and change it.");
     console.log("================================================================");
   }
 }
