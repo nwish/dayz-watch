@@ -46,10 +46,9 @@ export class Store {
     return server;
   }
 
-  // Change a server's Discord webhook. { webhookUrl } replaces it, or removes it when null or "" (the default webhook,
-  // if any, then applies); the URL gets the same check as when a server is added. { enabled: false } mutes every
-  // message for this server but keeps the URL; true unmutes it. Anything invalid is rejected before anything is
-  // changed. Returns the server, or null when there is no such id.
+  // Change a server's Discord webhook. { webhookUrl } replaces it, or removes it when null or ""; the URL gets the
+  // same check as when a server is added. { enabled: false } mutes every message for this server but keeps the URL;
+  // true unmutes it. Anything invalid is rejected before anything is changed. Returns the server, or null when there is no such id.
   updateWebhook(id, { webhookUrl, enabled } = {}) {
     const server = this.get(id);
     if (!server) return null;

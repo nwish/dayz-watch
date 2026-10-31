@@ -57,10 +57,9 @@ export class Monitor {
   // poll, with the player count it reported).
   // parkAfterMs: a server offline this long is "parked": it is checked only every parkedPollMs instead of every pollMs
   // and one Discord message says so (0 = never park). A server that answers again is unparked at once.
-  constructor({ query, notify = postWebhook, defaultWebhook = null, pollMs = 30_000, recheckMs = 5_000, onSample = null, onOutage = null, offlineAfter = 3, rebootWindowMs = 10 * 60e3, parkAfterMs = 0, parkedPollMs = 10 * 60e3, now = Date.now }) {
+  constructor({ query, notify = postWebhook, pollMs = 30_000, recheckMs = 5_000, onSample = null, onOutage = null, offlineAfter = 3, rebootWindowMs = 10 * 60e3, parkAfterMs = 0, parkedPollMs = 10 * 60e3, now = Date.now }) {
     this.query = query;
     this.notify = notify;
-    this.defaultWebhook = defaultWebhook;
     this.pollMs = pollMs;
     this.recheckMs = recheckMs;
     this.onSample = onSample;
@@ -311,9 +310,9 @@ export class Monitor {
   }
 
   async #send(server, st, msg) {
-    if (server.webhookEnabled === false) return; // muted from the Webhook dialog: nothing goes out, whichever webhook it would use
-    const url = server.webhookUrl ?? this.defaultWebhook;
-    if (!url) return; // no webhook configured: monitor only, no notification
+    if (server.webhookEnabled === false) return; // muted from the Webhook dialog: nothing goes out
+    const url = server.webhookUrl;
+    if (!url) return; // no webhook set: monitor only, no notification
     try {
       await this.notify(url, msg);
     } catch (e) {

@@ -15,7 +15,7 @@
 
 A dependency-free web app that watches and polls basic stats on DayZ servers via the Steam A2S_INFO query (UDP).  Comes with a web UI to manage and view monitored servers.  
 
-Click/tap on a server from the main list to open a live stats view with player count change alerts.  Supports per-server Discord webhooks (or a default from an environment variable) to post player count change alerts. The **Discord** button on a server's row opens a dialog to replace its webhook (paste a new URL; the saved one is never shown, and an empty box keeps it), remove it with **Remove webhook**, or switch the **Alerts on / muted** slider. Muted means nothing at all is posted for that server (player changes, offline, back online), via its own webhook or the default, and the URL stays saved. The button shows the state at a glance: green when the server has its own webhook and alerts are on, orange when alerts are muted, and plain when it has no webhook of its own.
+Click/tap on a server from the main list to open a live stats view with player count change alerts.  Supports per-server Discord webhooks to post player count change alerts. The **Discord** button on a server's row opens a dialog to replace its webhook (paste a new URL; the saved one is never shown, and an empty box keeps it), remove it with **Remove webhook**, or switch the **Alerts on / muted** slider. Muted means nothing at all is posted for that server (player changes, offline, back online), and the URL stays saved. The button shows the state at a glance: green when the server has its own webhook and alerts are on, orange when alerts are muted, and plain when it has no webhook of its own.
 
 ![dayz-watch live monitor: green and red alerts as players join and leave](docs/monitor.gif)
 
@@ -45,7 +45,7 @@ Then `docker compose up -d`
 Open `http://<host>:8080` and sign in. Servers and users are managed in the UI.
 
 **Environment**
-Set these in the compose file's `environment:` block (see [compose.yaml.example](compose.yaml.example) for the commented version). There is no `.env` file. If your compose file lives in a repository, don't commit `ADMIN_PASSWORD` or `DISCORD_WEBHOOK_URL` - leave the password empty (a random one is printed once in the log) and add the webhook to an untracked copy of the file.
+Set these in the compose file's `environment:` block (see [compose.yaml.example](compose.yaml.example) for the commented version). There is no `.env` file. If your compose file lives in a repository, don't commit `ADMIN_PASSWORD` - leave the password empty (a random one is printed once in the log).
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -55,7 +55,6 @@ Set these in the compose file's `environment:` block (see [compose.yaml.example]
 | `ALLOW_PRIVATE_ADDRESSES` | `false` | Servers on loopback, LAN, link-local or other non-public IPv4 addresses are refused, on adding and on every poll. Set `true` only to monitor a server on your own network. |
 | `TRUST_PROXY` | `false` | `true` behind a reverse proxy: the client IP for rate limiting comes from the last `X-Forwarded-For` entry, and `X-Forwarded-Proto`/`-Host` are honored. Enable only if clients can reach the container *only* through that proxy, or they can spoof their IP. |
 | `COOKIE_SECURE` | `false` | Mark the session cookie `Secure`. Set `true` over HTTPS (implied by `TRUST_PROXY=true` with `X-Forwarded-Proto: https`). |
-| `DISCORD_WEBHOOK_URL` | unset | Default webhook for servers added without their own. With no webhook, servers are still monitored but nothing is posted. |
 | `DIRECTORY_URL` | DZSA Launcher list | JSON list of public servers for the add-server search. Override only to point at a compatible mirror. |
 
 To serve on another host port, change the left side of the `8080:8080` mapping (the container always listens on 8080).

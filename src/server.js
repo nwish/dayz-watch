@@ -22,7 +22,6 @@ const monitorTimings = () => {
     parkAfterMs: v.parkAfterDays * 86400e3, parkedPollMs: v.parkedPollMinutes * 60e3,
   };
 };
-const DEFAULT_WEBHOOK = process.env.DISCORD_WEBHOOK_URL || null;
 const directory = new Directory({ url: process.env.DIRECTORY_URL || DEFAULT_DIRECTORY_URL });
 const TRUST_PROXY = process.env.TRUST_PROXY === "true";
 const ALLOW_PRIVATE = process.env.ALLOW_PRIVATE_ADDRESSES === "true"; // let servers be on loopback / the LAN
@@ -82,7 +81,6 @@ stats.prune();
 setInterval(() => stats.prune(), 60 * 60e3).unref(); // keep 90 days
 const monitor = new Monitor({
   query: (host, port) => queryInfo(host, port, { allowPrivate: ALLOW_PRIVATE }),
-  defaultWebhook: DEFAULT_WEBHOOK,
   ...monitorTimings(),
   onSample: (s, sample) => stats.record(s.id, sample),
   onOutage: (s, kind, atMs, players) => {
@@ -306,7 +304,6 @@ async function api(req, res, url, session) {
   if (method === "GET" && pathname === "/api/servers") {
     const cfg = settings.values;
     return reply(res, 200, {
-      defaultWebhook: Boolean(DEFAULT_WEBHOOK),
       offlineAfter: cfg.offlineAfter,
       pollSeconds: cfg.pollSeconds,
       recheckSeconds: Math.min(cfg.recheckSeconds, cfg.pollSeconds),

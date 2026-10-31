@@ -18,8 +18,6 @@ services:
       # Behind an HTTPS reverse proxy: trust X-Forwarded-* headers, and mark the session cookie Secure.
       TRUST_PROXY: "false"
       COOKIE_SECURE: "false"
-      # Default Discord webhook for servers added without their own (unset: nothing is posted).
-      DISCORD_WEBHOOK_URL: ""
       # Server list behind the add-server search box (defaults to the DZSA Launcher public list).
       # DIRECTORY_URL:
       # Polling/offline/parking settings are NOT env vars: they live in settings.json in the data volume,

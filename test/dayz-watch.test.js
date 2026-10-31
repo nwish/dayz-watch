@@ -69,7 +69,7 @@ test("queryInfo rejects on timeout", async () => {
   }
 });
 
-function monitorHarness(defaultWebhook = "https://default") {
+function monitorHarness(webhook = "https://own") {
   let next;
   const posts = [];
   const m = new Monitor({
@@ -79,9 +79,8 @@ function monitorHarness(defaultWebhook = "https://default") {
       return r;
     },
     notify: async (url, content) => posts.push({ url, content }),
-    defaultWebhook,
   });
-  const server = { id: "s1", host: "h", queryPort: 1, webhookUrl: null };
+  const server = { id: "s1", host: "h", queryPort: 1, webhookUrl: webhook };
   m.track(server);
   const tick = async (v) => {
     next = v;
@@ -132,9 +131,8 @@ test("monitor: failed query keeps last count and is not a change", async () => {
   assert.equal(m.status("s1").error, null);
 });
 
-test("monitor: per-server webhook overrides default", async () => {
-  const { server, posts, tick } = monitorHarness();
-  server.webhookUrl = "https://own";
+test("monitor: posts go to the server's own webhook", async () => {
+  const { posts, tick } = monitorHarness();
   await tick(info(1));
   await tick(info(2));
   assert.equal(posts[0].url, "https://own");
@@ -253,7 +251,7 @@ test("monitor: configure() re-plans servers that are already waiting, and does n
 });
 
 // Fake-clock harness: every tick() first advances 30 s, like a real poll interval.
-function outageHarness({ webhook = "https://default", offlineAfter = 3, rebootWindowMs = 0, pollMs = 30_000, recheckMs = 5_000, parkAfterMs = 0, parkedPollMs = 600_000, startAt = 0, offlineSince, notify, onOutage, onSample } = {}) {
+function outageHarness({ webhook = "https://own", offlineAfter = 3, rebootWindowMs = 0, pollMs = 30_000, recheckMs = 5_000, parkAfterMs = 0, parkedPollMs = 600_000, startAt = 0, offlineSince, notify, onOutage, onSample } = {}) {
   let t = startAt;
   let next;
   const posts = [];
@@ -263,7 +261,6 @@ function outageHarness({ webhook = "https://default", offlineAfter = 3, rebootWi
       return next;
     },
     notify: notify ?? (async (url, content) => posts.push(content)),
-    defaultWebhook: webhook,
     offlineAfter,
     rebootWindowMs,
     pollMs,
@@ -274,7 +271,7 @@ function outageHarness({ webhook = "https://default", offlineAfter = 3, rebootWi
     onOutage,
     now: () => t,
   });
-  const server = { id: "s1", host: "h", queryPort: 1, webhookUrl: null, ...(offlineSince === undefined ? {} : { offlineSince }) };
+  const server = { id: "s1", host: "h", queryPort: 1, webhookUrl: webhook, ...(offlineSince === undefined ? {} : { offlineSince }) };
   m.track(server);
   const tick = async (v, advanceMs = 30_000) => {
     t += advanceMs;
@@ -285,19 +282,18 @@ function outageHarness({ webhook = "https://default", offlineAfter = 3, rebootWi
 }
 const down = () => new Error("query timeout");
 
-test("monitor: a server muted with webhookEnabled false posts nothing, via the default or its own webhook, until unmuted", async () => {
-  const viaDefault = outageHarness({ webhook: "https://default" });
-  viaDefault.server.webhookEnabled = false;
-  await viaDefault.tick(info(10));
-  await viaDefault.tick(info(12)); // a player change would be posted
-  assert.deepEqual(viaDefault.posts, []);
-  delete viaDefault.server.webhookEnabled; // unmuted from the Webhook dialog
-  await viaDefault.tick(info(15));
-  assert.equal(viaDefault.posts.length, 1);
-  assert.match(viaDefault.posts[0], /players 12 → \*\*15\*\*/);
+test("monitor: a server muted with webhookEnabled false posts nothing, until unmuted", async () => {
+  const muted = outageHarness();
+  muted.server.webhookEnabled = false;
+  await muted.tick(info(10));
+  await muted.tick(info(12)); // a player change would be posted
+  assert.deepEqual(muted.posts, []);
+  delete muted.server.webhookEnabled; // unmuted from the Webhook dialog
+  await muted.tick(info(15));
+  assert.equal(muted.posts.length, 1);
+  assert.match(muted.posts[0], /players 12 → \*\*15\*\*/);
 
-  const own = outageHarness({ webhook: null, offlineAfter: 1 });
-  own.server.webhookUrl = "https://own";
+  const own = outageHarness({ offlineAfter: 1 });
   own.server.webhookEnabled = false;
   await own.tick(info(5));
   await own.tick(down()); // offline: the outage message would go to its own webhook
@@ -407,14 +403,13 @@ test("monitor + stats agree on how long an outage lasted (list, 'offline for', a
       return next;
     },
     notify: async (url, content) => posts.push(content),
-    defaultWebhook: "https://default",
     offlineAfter: 3,
     rebootWindowMs: 0, // alert at once, so the Discord duration can be compared with the stats one
     now: () => ms,
     onSample: (s, sample) => stats.record(s.id, sample),
     onOutage: (s, kind, at) => (kind === "start" ? stats.outageStart(s.id, at / 1000) : stats.outageEnd(s.id, at / 1000)),
   });
-  const server = { id: "s1", host: "h", queryPort: 1, webhookUrl: null };
+  const server = { id: "s1", host: "h", queryPort: 1, webhookUrl: "https://own" };
   m.track(server);
   const tick = async (v) => {
     ms += 30_000;
@@ -657,7 +652,7 @@ test("store: a webhook can be replaced or removed after the fact, with the same 
     assert.throws(() => a.updateWebhook(s.id, { webhookUrl: 5 }), /webhook/);
     assert.equal(new Store(dir).get(s.id).webhookUrl, two); // a rejected URL changes nothing
     a.updateWebhook(s.id, { webhookUrl: "" });
-    assert.equal(new Store(dir).get(s.id).webhookUrl, null); // empty removes it, so the default webhook applies
+    assert.equal(new Store(dir).get(s.id).webhookUrl, null); // empty removes it
     assert.equal(a.updateWebhook("nope", { webhookUrl: one }), null);
 
     // muting is kept apart from the URL: it survives a reload, leaves the URL alone, and a bad request changes neither

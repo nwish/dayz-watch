@@ -313,8 +313,8 @@ function statusText(s) {
 }
 
 
-function statusPill(s, defaultWebhook) {
-  const notifies = s.webhookEnabled && (s.hasWebhook || defaultWebhook);
+function statusPill(s) {
+  const notifies = s.webhookEnabled && s.hasWebhook;
   const detail = (statusText(s) ?? (s.state === "unknown" ? "Waiting for first response." : `ok, ${ago(s.checkedAt)}`)) + (notifies ? "" : s.webhookEnabled ? " · no webhook, not notifying" : " · alerts muted");
   let label = "Online";
   let tone = "online";
@@ -505,7 +505,7 @@ function renderRows(data) {
     const dark = s.state === "offline";
     cell(tr, dark ? (s.likelyRestart ? "restarting?" : "offline") : s.info ? `${s.info.players}/${s.info.maxPlayers}` : "—", dark ? (s.likelyRestart ? "warn" : "err") : "");
     const status = tr.insertCell();
-    status.append(statusPill(s, data.defaultWebhook));
+    status.append(statusPill(s));
     const td = tr.insertCell();
     const btn = document.createElement("button");
     btn.textContent = "Remove";
@@ -517,18 +517,18 @@ function renderRows(data) {
     };
     const hook = document.createElement("button");
     hook.textContent = "Discord";
-    if (!s.webhookEnabled && (s.hasWebhook || data.defaultWebhook)) {
+    if (!s.webhookEnabled && s.hasWebhook) {
       hook.classList.add("hook-muted");
-      hook.title = `Alerts are muted for this server${s.hasWebhook ? "; its webhook stays saved" : ""}. Click to change.`;
+      hook.title = "Alerts are muted for this server; its webhook stays saved. Click to change.";
     } else if (s.hasWebhook) {
       hook.classList.add("hook-on");
       hook.title = "Posting to this server's own webhook. Click to change.";
     } else {
-      hook.title = data.defaultWebhook ? "No webhook of its own: posting to the default webhook. Click to set one." : "No webhook set. Click to add one.";
+      hook.title = "No webhook set. Click to add one.";
     }
     hook.onclick = (ev) => {
       ev.stopPropagation(); // don't open the overlay
-      openHook(s, data.defaultWebhook);
+      openHook(s);
     };
     const stats = document.createElement("a");
     stats.className = "btn";
@@ -979,7 +979,7 @@ const hookState = document.getElementById("hook-state");
 const hookMsg = document.getElementById("hook-msg");
 const hookRemove = document.getElementById("hook-remove");
 let hookServer = null;
-let hookHasTarget = false; // something to mute: its own webhook, the default one, or (below) a URL typed into the box
+let hookHasTarget = false; // something to mute: the server's own webhook, or (below) a URL typed into the box
 const syncHookState = () => {
   hookEnabled.disabled = !(hookHasTarget || hookUrl.value.trim());
   hookState.textContent = hookEnabled.disabled ? "No webhook set" : hookEnabled.checked ? "Alerts on" : "Alerts muted";
@@ -989,9 +989,9 @@ const syncHookState = () => {
 };
 hookEnabled.onchange = syncHookState;
 hookUrl.addEventListener("input", syncHookState);
-function openHook(s, defaultWebhook) {
+function openHook(s) {
   hookServer = s;
-  hookHasTarget = s.hasWebhook || Boolean(defaultWebhook);
+  hookHasTarget = s.hasWebhook;
   hookUrl.value = "";
   hookEnabled.checked = s.webhookEnabled;
   syncHookState();
@@ -999,7 +999,7 @@ function openHook(s, defaultWebhook) {
   hookRemove.hidden = !s.hasWebhook;
   document.getElementById("hook-note").textContent = s.hasWebhook
     ? "This server has its own webhook (never shown). Paste a URL to replace it, or leave the box empty to keep it."
-    : `Paste a Discord webhook URL for this server. ${defaultWebhook ? "Without one it posts to the default webhook." : "Without one it posts nothing."}`;
+    : "Paste a Discord webhook URL for this server. Without one it posts nothing.";
   hookDialog.showModal();
   hookUrl.focus();
 }
@@ -1022,7 +1022,7 @@ document.getElementById("hook-form").addEventListener("submit", (e) => {
   saveHook(body);
 });
 hookRemove.onclick = async () => {
-  if (!(await ask({ title: "Remove webhook", text: "Remove this server's webhook? The default webhook (if there is one) is used instead.", confirmLabel: "Remove" }))) return;
+  if (!(await ask({ title: "Remove webhook", text: "Remove this server's webhook? Nothing is posted for it until you set a new one.", confirmLabel: "Remove" }))) return;
   saveHook({ webhookUrl: null });
 };
 document.getElementById("hook-cancel").onclick = () => hookDialog.close();
