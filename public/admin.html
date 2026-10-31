@@ -331,7 +331,7 @@ async function loadUsers() {
   for (const u of data.users) {
     const self = u.username === me.username;
     const tr = tb.insertRow();
-    tr.insertCell().textContent = self ? `${u.username} (you)` : u.username;
+    tr.insertCell().textContent = `${u.username}${self ? " (you)" : ""}${u.mustChangePassword ? " (temp password)" : ""}`;
     tr.insertCell().textContent = u.role;
     const login = tr.insertCell();
     login.className = "muted";

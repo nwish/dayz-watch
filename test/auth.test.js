@@ -150,6 +150,9 @@ test("bootstrap: creates the admin once, with a generated password", async () =>
     const generated = await bootstrapAdmin(u);
     assert.ok(generated && generated.length >= 15);
     assert.equal((await u.verify("admin", generated)).role, "admin");
+    assert.equal((await u.verify("admin", generated)).mustChangePassword, true); // the temp password is a one-page key
+    await u.setPassword("admin", "a chosen long password");
+    assert.equal((await u.verify("admin", "a chosen long password")).mustChangePassword, undefined);
     assert.equal(await bootstrapAdmin(u), null); // users exist: nothing happens again
     assert.equal(u.count(), 1);
 

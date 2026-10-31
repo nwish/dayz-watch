@@ -49,7 +49,8 @@ f.addEventListener("submit", async (e) => {
       body: JSON.stringify({ username: f.username.value, password: f.password.value }),
     });
     if (r.ok) {
-      location.replace("/");
+      const data = await r.json().catch(() => ({}));
+      location.replace(data.mustChangePassword ? "/account" : "/");
       return;
     }
     const data = await r.json().catch(() => ({}));

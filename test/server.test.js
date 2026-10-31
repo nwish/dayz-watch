@@ -108,9 +108,67 @@ test("login: bad password and unknown user are indistinguishable; success sets a
   assert.equal(ok.status, 200);
   assert.match(ok.set, /HttpOnly/);
   assert.match(ok.set, /SameSite=Strict/);
-  assert.deepEqual((await c.call("GET", "/api/me")).json, { username: "admin", role: "admin" });
+  assert.deepEqual((await c.call("GET", "/api/me")).json, { username: "admin", role: "admin", mustChangePassword: false });
   assert.equal((await c.call("GET", "/")).status, 200);
   assert.equal((await c.call("GET", "/login")).status, 302); // already signed in
+});
+
+test("first start: the generated password only unlocks the Account page until it is replaced", async () => {
+  const bootDir = fs.mkdtempSync(path.join(os.tmpdir(), "dw-boot-"));
+  const port = await freePort();
+  const boot = spawn("node", ["src/server.js"], {
+    env: { ...process.env, PORT: String(port), DATA_DIR: bootDir },
+    stdio: ["ignore", "pipe", "inherit"],
+  });
+  let out = "";
+  await new Promise((resolve, reject) => {
+    boot.on("exit", (c) => reject(new Error(`server exited ${c}`)));
+    boot.stdout.on("data", (d) => {
+      out += d;
+      if (out.includes("listening")) resolve(); // the banner prints before listen(): wait for the port to be up
+    });
+  });
+  const pw = /password: (\S+)/.exec(out)[1];
+  const b = `http://127.0.0.1:${port}`;
+  let cookie = "";
+  const call = async (method, url, body) => {
+    const res = await fetch(b + url, {
+      method,
+      redirect: "manual",
+      headers: { ...(body ? { "content-type": "application/json" } : {}), ...(cookie ? { cookie } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const set = res.headers.getSetCookie().find((c) => c.startsWith("dw_session="));
+    if (set) cookie = set.split(";")[0];
+    return res;
+  };
+  try {
+    const login = await call("POST", "/api/login", { username: "admin", password: pw });
+    assert.equal(login.status, 200);
+    assert.equal((await login.json()).mustChangePassword, true);
+
+    assert.equal((await call("GET", "/api/servers")).status, 403); // everything else waits for a real password
+    assert.equal((await call("POST", "/api/servers", { host: "127.0.0.1", queryPort: dayzPort })).status, 403);
+    const page = await call("GET", "/");
+    assert.equal(page.status, 302);
+    assert.equal(page.headers.get("location"), "/account");
+    assert.equal((await call("GET", "/account")).status, 200);
+    assert.equal((await call("GET", "/api/me")).status, 200);
+
+    assert.equal((await call("POST", "/api/me/password", { currentPassword: "not the temp password", newPassword: "a new long password" })).status, 403);
+    assert.equal((await call("POST", "/api/me/password", { currentPassword: pw, newPassword: "a new long password" })).status, 200);
+
+    assert.equal((await call("GET", "/api/servers")).status, 200); // unlocked
+    assert.equal((await call("GET", "/")).status, 200);
+    assert.equal((await (await call("GET", "/api/me")).json()).mustChangePassword, false);
+    const again = await call("POST", "/api/login", { username: "admin", password: "a new long password" });
+    assert.equal((await again.json()).mustChangePassword, false);
+  } finally {
+    const exited = new Promise((resolve) => boot.once("exit", resolve));
+    boot.kill();
+    await exited;
+    fs.rmSync(bootDir, { recursive: true, force: true });
+  }
 });
 
 test("requests that aren't same-origin JSON are rejected", async () => {
@@ -456,7 +514,7 @@ test("AUTH_DISABLED bypasses login with an implicit local admin without weakenin
     assert.equal((await call("POST", "/api/login", { username: "admin", password: ADMIN_PW })).status, 409);
 
     const me = await call("GET", "/api/me");
-    assert.deepEqual(await me.json(), { username: "local", role: "admin", authDisabled: true });
+    assert.deepEqual(await me.json(), { username: "local", role: "admin", mustChangePassword: false, authDisabled: true });
     assert.deepEqual(me.headers.getSetCookie(), []);
     assert.equal((await call("GET", "/admin")).status, 200);
     const account = await call("GET", "/account");

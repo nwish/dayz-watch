@@ -26,6 +26,11 @@
   </nav>
 </header>
 
+<section id="temp-notice" hidden>
+  <h2>Temporary password</h2>
+  <p>This account still uses the random password printed in the server log. Choose a new password below: the rest of the app stays locked until you do.</p>
+</section>
+
 <section>
   <h2>Change password</h2>
   <form id="pw-form" class="inline">
@@ -60,6 +65,8 @@ function setMsg(id, text, ok) {
   $(id).className = ok ? "ok" : "err";
 }
 
+let mustChangePassword = false; // set from /api/me: a temporary password only unlocks this page
+
 $("pw-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const f = e.target;
@@ -69,13 +76,18 @@ $("pw-form").addEventListener("submit", async (e) => {
     body: { currentPassword: f.currentPassword.value, newPassword: f.newPassword.value },
   });
   setMsg("pw-msg", ok ? "Password changed. Your other sessions were signed out." : data.error, ok);
-  if (ok) f.reset();
+  if (ok) {
+    f.reset();
+    if (mustChangePassword) setTimeout(() => location.replace("/"), 1200); // the app just unlocked
+  }
 });
 
 (async () => {
   const me = (await api("/api/me")).data;
   $("who").textContent = `${me.username} (${me.role})`;
   $("pw-form").username.value = me.username; // lets password managers update the right entry
+  mustChangePassword = me.mustChangePassword === true;
+  if (mustChangePassword) $("temp-notice").hidden = false;
 })();
 </script>
 </body>

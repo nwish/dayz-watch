@@ -66,7 +66,7 @@ if (AUTH_DISABLED) {
     console.log("================================================================");
     console.log(" No users existed: created admin account 'admin'.");
     console.log(`   password: ${generated}`);
-    console.log(" This is shown once. Sign in and change it.");
+    console.log(" This is shown once. Sign in; you must change this password before the rest of the app unlocks.");
     console.log("================================================================");
   }
 }
@@ -259,7 +259,7 @@ async function login(req, res) {
   userLimiter.reset(name);
   users.touchLogin(user.username);
   const token = sessions.create(user.username);
-  return reply(res, 200, { username: user.username, role: user.role }, "application/json", {
+  return reply(res, 200, { username: user.username, role: user.role, mustChangePassword: user.mustChangePassword === true }, "application/json", {
     "set-cookie": sessionCookie(req, token, sessions.maxMs / 1000),
   });
 }
@@ -272,7 +272,7 @@ async function api(req, res, url, session) {
     if (me.role !== "admin") throw new AuthError("admin only", 403);
   };
 
-  if (method === "GET" && pathname === "/api/me") return reply(res, 200, { username: me.username, role: me.role, ...(AUTH_DISABLED ? { authDisabled: true } : {}) });
+  if (method === "GET" && pathname === "/api/me") return reply(res, 200, { username: me.username, role: me.role, mustChangePassword: me.mustChangePassword === true, ...(AUTH_DISABLED ? { authDisabled: true } : {}) });
 
   if (method === "POST" && pathname === "/api/logout") {
     if (AUTH_DISABLED) return reply(res, 200, { ok: true });
@@ -479,10 +479,20 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && pathname === "/login") {
-      return session ? redirect(res, "/") : reply(res, 200, LOGIN_HTML, "text/html; charset=utf-8");
+      return session ? redirect(res, session.user.mustChangePassword ? "/account" : "/") : reply(res, 200, LOGIN_HTML, "text/html; charset=utf-8");
     }
     if (!session) {
       return pathname.startsWith("/api/") ? reply(res, 401, { error: "authentication required" }) : redirect(res, "/login");
+    }
+    if (session.user.mustChangePassword) {
+      // A temporary password unlocks only the Account page (and signing out): everything else waits for a real one.
+      const allowed = (req.method === "GET" && (pathname === "/account" || pathname === "/api/me")) ||
+        (req.method === "POST" && (pathname === "/api/me/password" || pathname === "/api/logout"));
+      if (!allowed) {
+        return pathname.startsWith("/api/")
+          ? reply(res, 403, { error: "you must change your password first", code: "password_change_required" })
+          : redirect(res, "/account");
+      }
     }
     if (req.method === "GET" && pathname === "/") return reply(res, 200, INDEX_HTML, "text/html; charset=utf-8");
     if (req.method === "GET" && pathname === "/admin") {

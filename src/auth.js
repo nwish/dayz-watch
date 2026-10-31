@@ -73,7 +73,7 @@ function validateRole(role) {
   if (!ROLES.includes(role)) throw new AuthError(`role must be one of: ${ROLES.join(", ")}`);
 }
 
-const view = (u) => ({ username: u.username, role: u.role, createdAt: u.createdAt, lastLoginAt: u.lastLoginAt });
+const view = (u) => ({ username: u.username, role: u.role, createdAt: u.createdAt, lastLoginAt: u.lastLoginAt, ...(u.mustChangePassword ? { mustChangePassword: true } : {}) });
 
 export class UserStore {
   constructor(dataDir) {
@@ -137,6 +137,7 @@ export class UserStore {
     const user = this.#find(username);
     if (!user) throw new AuthError("user not found", 404);
     user.passwordHash = passwordHash;
+    delete user.mustChangePassword; // a chosen password is no longer a temporary one
     this.#save();
   }
 
@@ -166,14 +167,25 @@ export class UserStore {
     user.lastLoginAt = new Date().toISOString();
     this.#save();
   }
+
+  // Flag an account as still using a temporary password (bootstrap only; setPassword clears it). The server
+  // then lets it reach only the Account page until the password is replaced.
+  markTempPassword(username) {
+    const user = this.#find(username);
+    if (!user) return;
+    user.mustChangePassword = true;
+    this.#save();
+  }
 }
 
 // On first start with no users, create the initial admin with a random password, printed once in the log.
-// Returns the generated password, or null when users already existed.
+// The account is flagged mustChangePassword: the temporary password only unlocks the Account page until it
+// is replaced. Returns the generated password, or null when users already existed.
 export async function bootstrapAdmin(users) {
   if (users.count() > 0) return null;
   const generated = crypto.randomBytes(15).toString("base64url");
   await users.create({ username: "admin", password: generated, role: "admin" });
+  users.markTempPassword("admin");
   return generated;
 }
 

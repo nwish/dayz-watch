@@ -65,7 +65,7 @@ The container needs outbound UDP to the query ports and outbound HTTPS to Discor
 
 ## Accounts and login
 
-- **First admin:** on a first start with no users, an `admin` account is created with a random password printed once in the container log. Sign in with it and change the password on the Account page.
+- **First admin:** on a first start with no users, an `admin` account is created with a random password printed once in the container log. Sign in with it: until you replace it on the Account page, the rest of the app stays locked.
 - `AUTH_DISABLED=true` skips login: every request is the `local` admin, so every API, including user management, is open to anyone who can reach the app. Use it only on a trusted LAN or behind separate access control.
 - Sessions are server-side, in an `HttpOnly`, `SameSite=Strict` cookie. They expire after 12 h idle or 7 days total, and are lost on restart.
 - **Roles:** `admin` can do everything including the admin page; `user` can view and manage servers but not users.
