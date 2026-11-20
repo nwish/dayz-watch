@@ -1,14 +1,24 @@
 # The app has no npm dependencies, so this only watches what the workflows and the image are built from.
+# Checks run Fridays at 05:00 Pacific (America/Los_Angeles follows daylight saving, so it stays 05:00 on the wall clock).
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+      day: friday
+      time: "05:00"
+      timezone: America/Los_Angeles
+    groups:
+      actions:
+        patterns: ["*"] # one pull request for all action bumps instead of one each
   - package-ecosystem: docker
     directory: /
     schedule:
       interval: weekly
+      day: friday
+      time: "05:00"
+      timezone: America/Los_Angeles
     ignore:
       # Stay on Node 22 until the move to a newer major is a deliberate change (node:sqlite is still experimental).
       - dependency-name: node
