@@ -117,8 +117,8 @@ jobs:
               }).sort((a, b) =>
                 Date.parse(b.created_at) - Date.parse(a.created_at) || b.id - a.id
               );
-              core.info(`${packageName}: ${candidates.length} SHA-only versions; retaining newest 3.`);
-              for (const version of candidates.slice(3)) {
+              core.info(`${packageName}: ${candidates.length} SHA-only versions; retaining newest 5.`);
+              for (const version of candidates.slice(5)) {
                 core.info(`Deleting ${packageName} ${version.metadata.container.tags[0]} (version ${version.id})`);
                 await github.rest.packages.deletePackageVersionForUser({
                   username: owner,
