@@ -92,3 +92,39 @@ jobs:
             echo
             while IFS= read -r tag; do echo "- ${tag}"; done <<< "${TAGS}"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Keep only three newest SHA-only versions; preserve releases and untagged manifests.
+      - name: Prune old SHA-only image versions
+        uses: actions/github-script@v8
+        env:
+          GHCR_CLEANUP_PACKAGES: dayz-watch
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+            const packageType = 'container';
+            const packageNames = process.env.GHCR_CLEANUP_PACKAGES.split(',').filter(Boolean);
+            for (const packageName of packageNames) {
+              const versions = await github.paginate(
+                github.rest.packages.getAllPackageVersionsForPackageOwnedByUser,
+                { username: owner, package_type: packageType, package_name: packageName, per_page: 100 }
+              );
+              // A semver/latest tag on the same digest protects the entire version.
+              // Untagged versions (including multi-platform child manifests) are untouched.
+              const candidates = versions.filter(v => {
+                const tags = v.metadata?.container?.tags ?? [];
+                return tags.length === 1 && /^sha-[a-f0-9]{7,40}$/.test(tags[0]);
+              }).sort((a, b) =>
+                Date.parse(b.created_at) - Date.parse(a.created_at) || b.id - a.id
+              );
+              core.info(`${packageName}: ${candidates.length} SHA-only versions; retaining newest 3.`);
+              for (const version of candidates.slice(3)) {
+                core.info(`Deleting ${packageName} ${version.metadata.container.tags[0]} (version ${version.id})`);
+                await github.rest.packages.deletePackageVersionForUser({
+                  username: owner,
+                  package_type: packageType,
+                  package_name: packageName,
+                  package_version_id: version.id,
+                });
+              }
+            }
